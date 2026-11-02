@@ -158,3 +158,12 @@ pre {
     white-space: nowrap;
     font-size: .85rem;
 }
+
+.admin-toast {
+    transition: opacity .3s ease, transform .3s ease;
+}
+
+.admin-toast-hiding {
+    opacity: 0;
+    transform: translateY(-8px);
+}

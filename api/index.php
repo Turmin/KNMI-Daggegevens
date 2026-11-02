@@ -20,9 +20,8 @@ $supportedStations = KnmiStationCatalog::all();
     <link rel="shortcut icon" href="../icons/favicon.ico">
     <link rel="apple-touch-icon" sizes="180x180" href="../icons/apple-touch-icon.png">
     <meta name="theme-color" content="#0a66c2">
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.1/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="../vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link href="../vendor/bootstrap-icons/bootstrap-icons.min.css" rel="stylesheet">
     <style>
         :root {
             --page-bg: #f5f7fb;

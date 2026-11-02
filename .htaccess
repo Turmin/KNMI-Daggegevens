@@ -6,6 +6,22 @@ AddType image/x-icon .ico
     ForceType application/manifest+json
 </Files>
 
+ErrorDocument 400 /error.php
+ErrorDocument 401 /error.php
+ErrorDocument 403 /error.php
+ErrorDocument 404 /error.php
+ErrorDocument 405 /error.php
+ErrorDocument 408 /error.php
+ErrorDocument 429 /error.php
+ErrorDocument 500 /error.php
+ErrorDocument 502 /error.php
+ErrorDocument 503 /error.php
+ErrorDocument 504 /error.php
+
+# Admin is only reachable from this IP address
+RewriteCond %{REMOTE_ADDR} !^85\.145\.36\.255$
+RewriteRule ^admin(/|$) - [F,L]
+
 RewriteRule ^admin$ https://%{HTTP_HOST}/admin/ [R=301,L]
 
 RewriteCond %{HTTPS} !=on

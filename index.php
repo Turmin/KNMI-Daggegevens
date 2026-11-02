@@ -338,12 +338,11 @@ if ($initialWeatherJson === false) {
     <meta property="og:description" content="<?php echo h($pageDescription); ?>">
     
     <!-- Bootstrap CSS -->
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet">
+    <link href="<?php echo h(appAssetPath('vendor/bootstrap/css/bootstrap.min.css')); ?>" rel="stylesheet">
     <!-- Chart.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.js" defer></script>
+    <script src="<?php echo h(appAssetPath('vendor/chartjs/chart.umd.js')); ?>" defer></script>
     <!-- Bootstrap Icons -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.1/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="<?php echo h(appAssetPath('vendor/bootstrap-icons/bootstrap-icons.min.css')); ?>" rel="stylesheet">
     
     <!-- Custom Styles -->
     <link rel="stylesheet" href="css/modern-style.css?v=<?php echo filemtime(__DIR__ . '/css/modern-style.css'); ?>">
@@ -503,10 +502,10 @@ if ($initialWeatherJson === false) {
 
         <!-- Loading Spinner -->
         <div class="loading-spinner text-center" id="loadingSpinner" style="display: none;" aria-live="polite" aria-atomic="true">
-            <div class="spinner-border text-primary" role="status">
+            <div class="spinner-border spinner-border-sm text-primary" role="status">
                 <span class="visually-hidden" data-i18n="loading">Laden...</span>
             </div>
-            <p class="mt-2" data-i18n="fetchingWeather">Weergegevens ophalen...</p>
+            <p class="mb-0" data-i18n="fetchingWeather">Weergegevens ophalen...</p>
         </div>
 
         <!-- Weather Data -->
@@ -1009,7 +1008,7 @@ if ($initialWeatherJson === false) {
     </script>
 
     <!-- External Scripts -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/js/bootstrap.bundle.min.js"></script>
+    <script src="<?php echo h(appAssetPath('vendor/bootstrap/js/bootstrap.bundle.min.js')); ?>"></script>
     
     <!-- Custom JavaScript -->
     <script src="js/app-i18n.js?v=<?php echo filemtime(__DIR__ . '/js/app-i18n.js'); ?>"></script>

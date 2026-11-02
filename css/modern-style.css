@@ -618,10 +618,24 @@ small.text-muted {
 }
 
 /* Loading States */
+/* Floating indicator: takes no space in the layout, so content never shifts while loading */
 .loading-spinner {
     display: none;
-    text-align: center;
-    padding: 2rem;
+    position: fixed;
+    top: max(1rem, env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1080;
+    align-items: center;
+    gap: .6rem;
+    padding: .55rem 1.1rem;
+    background: var(--surface-strong);
+    color: var(--text-main);
+    border: 1px solid var(--border-soft);
+    border-radius: 999px;
+    box-shadow: var(--shadow-hover);
+    font-size: .95rem;
+    pointer-events: none;
 }
 
 .loading-placeholder {

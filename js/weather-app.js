@@ -1803,7 +1803,7 @@ class WeatherApp {
     showLoading() {
         const spinner = document.getElementById('loadingSpinner');
         if (spinner) {
-            spinner.style.display = 'block';
+            spinner.style.display = 'flex';
         }
     }
 

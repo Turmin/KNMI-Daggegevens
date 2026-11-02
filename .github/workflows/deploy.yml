@@ -50,6 +50,7 @@ jobs:
             --include='doc/***' \
             --include='lib/***' \
             --include='models/***' \
+            --include='vendor/***' \
             --exclude='*' \
             ./ .deploy/
 

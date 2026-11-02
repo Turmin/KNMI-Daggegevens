@@ -314,7 +314,7 @@ if (($_POST['action'] ?? '') === 'logout') {
     session_destroy();
     session_start();
     $_SESSION['admin_csrf'] = bin2hex(random_bytes(32));
-    redirectAdmin(['type' => 'success', 'messages' => ['Logged out.']]);
+    redirectAdmin(['type' => 'success', 'messages' => ['Logged out.'], 'toast' => true]);
 }
 
 if (!$setupRequired && ($_POST['action'] ?? '') === 'login') {
@@ -328,7 +328,7 @@ if (!$setupRequired && ($_POST['action'] ?? '') === 'login') {
         $_SESSION['admin_logged_in'] = true;
         $_SESSION['admin_user'] = $credentials['username'];
         $_SESSION['admin_csrf'] = bin2hex(random_bytes(32));
-        redirectAdmin(['type' => 'success', 'messages' => ['Logged in.']]);
+        redirectAdmin(['type' => 'success', 'messages' => ['Logged in.'], 'toast' => true]);
     }
 
     redirectAdmin(['type' => 'danger', 'messages' => ['Invalid username or password.']]);
@@ -462,11 +462,23 @@ $activity = array_reverse($_SESSION['admin_activity'] ?? []);
     <link rel="icon" type="image/png" sizes="16x16" href="../icons/favicon-16x16.png">
     <link rel="shortcut icon" href="../icons/favicon.ico">
     <link rel="apple-touch-icon" sizes="180x180" href="../icons/apple-touch-icon.png">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.1/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="../vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link href="../vendor/bootstrap-icons/bootstrap-icons.min.css" rel="stylesheet">
     <link href="css/admin-style.css" rel="stylesheet">
 </head>
 <body>
+    <?php if ($flash && !empty($flash['toast'])): ?>
+        <div class="toast-container position-fixed top-0 end-0 p-3">
+            <div class="toast admin-toast show text-bg-<?php echo h($flash['type']); ?> border-0" role="status" aria-live="polite" aria-atomic="true">
+                <div class="d-flex">
+                    <div class="toast-body">
+                        <?php foreach ($flash['messages'] as $message): ?><div><?php echo h($message); ?></div><?php endforeach; ?>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" aria-label="Close"></button>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
     <div class="container admin-container">
         <?php if ($setupRequired): ?>
             <div class="login-shell">
@@ -476,7 +488,7 @@ $activity = array_reverse($_SESSION['admin_activity'] ?? []);
                         <div>Create the first admin login.</div>
                     </div>
                     <div class="card-body">
-                        <?php if ($flash): ?>
+                        <?php if ($flash && empty($flash['toast'])): ?>
                             <div class="alert alert-<?php echo h($flash['type']); ?>">
                                 <?php foreach ($flash['messages'] as $message): ?><div><?php echo h($message); ?></div><?php endforeach; ?>
                             </div>
@@ -509,7 +521,7 @@ $activity = array_reverse($_SESSION['admin_activity'] ?? []);
                         <div>Log in to download and import weather data.</div>
                     </div>
                     <div class="card-body">
-                        <?php if ($flash): ?>
+                        <?php if ($flash && empty($flash['toast'])): ?>
                             <div class="alert alert-<?php echo h($flash['type']); ?>">
                                 <?php foreach ($flash['messages'] as $message): ?><div><?php echo h($message); ?></div><?php endforeach; ?>
                             </div>
@@ -549,7 +561,7 @@ $activity = array_reverse($_SESSION['admin_activity'] ?? []);
                 </div>
             </div>
 
-            <?php if ($flash): ?>
+            <?php if ($flash && empty($flash['toast'])): ?>
                 <div class="alert alert-<?php echo h($flash['type']); ?>">
                     <?php foreach ($flash['messages'] as $message): ?><div><?php echo h($message); ?></div><?php endforeach; ?>
                 </div>
@@ -918,6 +930,7 @@ $activity = array_reverse($_SESSION['admin_activity'] ?? []);
         <?php endif; ?>
     </div>
     <script src="js/cron-schedule.js?v=<?php echo (int)filemtime(__DIR__ . '/js/cron-schedule.js'); ?>"></script>
+    <script src="js/admin-toast.js?v=<?php echo (int)filemtime(__DIR__ . '/js/admin-toast.js'); ?>"></script>
     <script src="js/query-presets.js?v=<?php echo (int)filemtime(__DIR__ . '/js/query-presets.js'); ?>"></script>
 </body>
 </html>
