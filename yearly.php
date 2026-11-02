@@ -146,8 +146,12 @@ foreach ($rows as $row) {
 }
 
 $summaryRows = $completeRows ?: $rows;
+// Only complete years count for wettest/driest/average, otherwise a partial
+// year (e.g. a station's first year) would show up as the driest year.
 $rainSummaryRows = array_values(array_filter($summaryRows, static function($row) {
-    return $row['precipitation_mm'] !== null && $row['precipitation_mm'] !== '';
+    return $row['precipitation_mm'] !== null
+        && $row['precipitation_mm'] !== ''
+        && (int)($row['available_days'] ?? 0) >= 360;
 }));
 
 foreach ($rainSummaryRows as $row) {
@@ -162,10 +166,13 @@ foreach ($rainSummaryRows as $row) {
 }
 
 foreach ($summaryRows as $row) {
+    // Warmest year = highest annual mean temperature. Years with gaps are skipped,
+    // because a year with only summer days would otherwise top the list.
     if (
-        $row['temp_max_c'] !== null
-        && $row['temp_max_c'] !== ''
-        && ($warmest === null || (float)$row['temp_max_c'] > (float)$warmest['temp_max_c'])
+        $row['temp_avg_c'] !== null
+        && $row['temp_avg_c'] !== ''
+        && (int)($row['available_days'] ?? 0) >= 360
+        && ($warmest === null || (float)$row['temp_avg_c'] > (float)$warmest['temp_avg_c'])
     ) {
         $warmest = $row;
     }
@@ -317,8 +324,8 @@ $manifestHref = appAssetPath('manifest.json');
                                     <div>
                                         <div class="metric-value"><?php echo $warmest ? h($warmest['year']) : '--'; ?></div>
                                         <small>
-                                            <span data-i18n="warmestYear">Warmste jaar:</span>
-                                            <?php echo formatMetricValue($warmest['temp_max_c'] ?? null, '°C', false); ?>
+                                            <span data-i18n="warmestYear">Warmste jaar (gemiddeld):</span>
+                                            <?php echo formatMetricValue($warmest['temp_avg_c'] ?? null, '°C', false); ?>
                                         </small>
                                     </div>
                                 </div>
