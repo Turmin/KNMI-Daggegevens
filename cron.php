@@ -7,6 +7,23 @@ require_once __DIR__ . '/lib/CronScheduleService.php';
 
 $isCli = PHP_SAPI === 'cli';
 
+// Only production runs cron jobs. Development shares the database and must
+// never import, otherwise both environments insert the same rows at once.
+// The deploy workflow writes config/environment.php; without it we assume production.
+$environmentFile = __DIR__ . '/config/environment.php';
+$environment = is_file($environmentFile) ? (string)(require $environmentFile) : 'production';
+if ($environment !== 'production') {
+    if (!$isCli) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'success' => true,
+            'ran' => 0,
+            'skipped' => 'Cron jobs are disabled in the ' . $environment . ' environment.'
+        ], JSON_PRETTY_PRINT);
+    }
+    exit(0);
+}
+
 function loadCronToken(): ?string {
     $credentialsFile = dirname(__DIR__) . '/knmi.cron.credentials.php';
     if (!is_file($credentialsFile)) {

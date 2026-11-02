@@ -53,6 +53,11 @@ jobs:
             --exclude='*' \
             ./ .deploy/
 
+      - name: Write environment file
+        run: |
+          printf "<?php\nreturn '%s';\n" "${{ github.ref_name == 'main' && 'production' || 'development' }}" > .deploy/config/environment.php
+          cat .deploy/config/environment.php
+
       - name: Deploy via FTPS
         uses: SamKirkland/FTP-Deploy-Action@v4.4.0
         with:
