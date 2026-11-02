@@ -222,10 +222,9 @@ $manifestHref = appAssetPath('manifest.json');
             document.documentElement.lang = ['nl', 'en'].includes(savedLanguage) ? savedLanguage : 'nl';
         })();
     </script>
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.1/font/bootstrap-icons.min.css" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.js"></script>
+    <link href="<?php echo h(appAssetPath('vendor/bootstrap/css/bootstrap.min.css')); ?>" rel="stylesheet">
+    <link href="<?php echo h(appAssetPath('vendor/bootstrap-icons/bootstrap-icons.min.css')); ?>" rel="stylesheet">
+    <script src="<?php echo h(appAssetPath('vendor/chartjs/chart.umd.js')); ?>"></script>
     <link rel="stylesheet" href="css/modern-style.css?v=<?php echo filemtime(__DIR__ . '/css/modern-style.css'); ?>">
 </head>
 <body class="yearly-page">

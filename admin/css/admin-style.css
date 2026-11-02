@@ -134,3 +134,36 @@ pre {
         grid-template-columns: 1fr;
     }
 }
+
+.query-input {
+    font-family: SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .875rem;
+}
+
+.query-result {
+    max-height: 420px;
+    overflow: auto;
+    border: 1px solid rgba(20, 52, 85, .12);
+    border-radius: 6px;
+}
+
+.query-result th {
+    position: sticky;
+    top: 0;
+    background: #f8fbfe;
+    white-space: nowrap;
+}
+
+.query-result td {
+    white-space: nowrap;
+    font-size: .85rem;
+}
+
+.admin-toast {
+    transition: opacity .3s ease, transform .3s ease;
+}
+
+.admin-toast-hiding {
+    opacity: 0;
+    transform: translateY(-8px);
+}

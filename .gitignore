@@ -3,3 +3,4 @@ etmgeg*
 sitemap*
 !sitemap.php
 google*
+config/environment.php

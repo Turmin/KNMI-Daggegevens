@@ -13,6 +13,36 @@ function isValidDateString($date) {
     return $parsed && $parsed->format('Y-m-d') === $date;
 }
 
+function minSelectableDate() {
+    return '1901-01-01';
+}
+
+function maxSelectableDate() {
+    return date('Y-m-d', strtotime('yesterday'));
+}
+
+function constrainDateRange($firstDate, $lastDate) {
+    $minimum = minSelectableDate();
+    $maximum = maxSelectableDate();
+    $firstDate = max((string)$firstDate, $minimum);
+    $lastDate = min((string)$lastDate, $maximum);
+
+    if ($lastDate < $minimum) {
+        $firstDate = $minimum;
+        $lastDate = $minimum;
+    } elseif ($firstDate > $maximum) {
+        $firstDate = $maximum;
+        $lastDate = $maximum;
+    } elseif ($lastDate < $firstDate) {
+        $firstDate = $lastDate;
+    }
+
+    return [
+        'first_date' => $firstDate,
+        'last_date' => $lastDate
+    ];
+}
+
 function getRequestedDate() {
     foreach (['date', 'datum'] as $param) {
         if (!empty($_GET[$param])) {
@@ -202,19 +232,20 @@ try {
     
     // Get date range for navigation limits
     $dateRange = $weatherData->getDateRange($defaultStation);
+    $dateRange = constrainDateRange($dateRange['first_date'], $dateRange['last_date']);
     $firstDate = $dateRange['first_date'];
     $lastDate = $dateRange['last_date'];
     
 } catch(Exception $e) {
     error_log("Initialization error: " . $e->getMessage());
-    $firstDate = '1970-01-01';
-    $lastDate = date('Y-m-d');
+    $firstDate = minSelectableDate();
+    $lastDate = maxSelectableDate();
 }
 
 $pageLanguage = isset($_GET['lang']) && $_GET['lang'] === 'en' ? 'en' : 'nl';
 
-// Set default date (today or latest available)
-$defaultDate = min(date('Y-m-d'), $lastDate);
+// Set default date to the latest selectable available date.
+$defaultDate = $lastDate;
 $requestedDateIsCanonical = false;
 if ($requestedDate && isValidDateString($requestedDate) && $requestedDate >= $firstDate && $requestedDate <= $lastDate) {
     $defaultDate = $requestedDate;
@@ -307,12 +338,11 @@ if ($initialWeatherJson === false) {
     <meta property="og:description" content="<?php echo h($pageDescription); ?>">
     
     <!-- Bootstrap CSS -->
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet">
+    <link href="<?php echo h(appAssetPath('vendor/bootstrap/css/bootstrap.min.css')); ?>" rel="stylesheet">
     <!-- Chart.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.js" defer></script>
+    <script src="<?php echo h(appAssetPath('vendor/chartjs/chart.umd.js')); ?>" defer></script>
     <!-- Bootstrap Icons -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.1/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="<?php echo h(appAssetPath('vendor/bootstrap-icons/bootstrap-icons.min.css')); ?>" rel="stylesheet">
     
     <!-- Custom Styles -->
     <link rel="stylesheet" href="css/modern-style.css?v=<?php echo filemtime(__DIR__ . '/css/modern-style.css'); ?>">
@@ -472,10 +502,10 @@ if ($initialWeatherJson === false) {
 
         <!-- Loading Spinner -->
         <div class="loading-spinner text-center" id="loadingSpinner" style="display: none;" aria-live="polite" aria-atomic="true">
-            <div class="spinner-border text-primary" role="status">
+            <div class="spinner-border spinner-border-sm text-primary" role="status">
                 <span class="visually-hidden" data-i18n="loading">Laden...</span>
             </div>
-            <p class="mt-2" data-i18n="fetchingWeather">Weergegevens ophalen...</p>
+            <p class="mb-0" data-i18n="fetchingWeather">Weergegevens ophalen...</p>
         </div>
 
         <!-- Weather Data -->
@@ -978,7 +1008,7 @@ if ($initialWeatherJson === false) {
     </script>
 
     <!-- External Scripts -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/js/bootstrap.bundle.min.js"></script>
+    <script src="<?php echo h(appAssetPath('vendor/bootstrap/js/bootstrap.bundle.min.js')); ?>"></script>
     
     <!-- Custom JavaScript -->
     <script src="js/app-i18n.js?v=<?php echo filemtime(__DIR__ . '/js/app-i18n.js'); ?>"></script>

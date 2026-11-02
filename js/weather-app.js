@@ -3,9 +3,12 @@ class WeatherApp {
     constructor() {
         this.api = new WeatherAPI(API_BASE_URL);
         this.chartManager = null;
-        this.currentDate = this.parseAPIDate(DEFAULT_DATE);
-        this.firstDate = FIRST_DATE;
-        this.lastDate = LAST_DATE;
+        this.minimumSelectableDate = '1901-01-01';
+        this.maximumSelectableDate = this.getYesterdayDateString();
+        const selectableRange = this.selectableDateRange(FIRST_DATE, LAST_DATE);
+        this.firstDate = selectableRange.firstDate;
+        this.lastDate = selectableRange.lastDate;
+        this.currentDate = this.clampDateToAvailableRange(this.parseAPIDate(DEFAULT_DATE));
         this.defaultStation = typeof DEFAULT_STATION !== 'undefined' ? Number(DEFAULT_STATION) : 260;
         this.stations = Array.isArray(window.KNMI_STATIONS)
             ? window.KNMI_STATIONS
@@ -187,7 +190,10 @@ class WeatherApp {
         if (primaryDate) {
             this.enableDatePickerOpen(primaryDate);
             primaryDate.addEventListener('change', (e) => {
-                this.currentDate = this.parseAPIDate(e.target.value);
+                const selectedDate = this.enforceDateInputValue(e.target, 'selectedOutOfRange');
+                if (!selectedDate) return;
+
+                this.currentDate = this.parseAPIDate(selectedDate);
                 this.loadWeatherData();
             });
         }
@@ -817,7 +823,8 @@ class WeatherApp {
         if (!this.comparisonMode) return;
 
         try {
-            const comparisonDateStr = document.getElementById('comparisonDate').value;
+            const comparisonDateEl = document.getElementById('comparisonDate');
+            const comparisonDateStr = this.enforceDateInputValue(comparisonDateEl, 'comparisonOutOfRange');
             if (!comparisonDateStr) return;
 
             const data = await this.api.fetchWeatherData(comparisonDateStr, this.currentStation);
@@ -1526,14 +1533,16 @@ class WeatherApp {
             throw new Error('No date range available for station');
         }
 
-        this.firstDate = range.first_date;
-        this.lastDate = range.last_date;
+        const selectableRange = this.selectableDateRange(range.first_date, range.last_date);
+        this.firstDate = selectableRange.firstDate;
+        this.lastDate = selectableRange.lastDate;
 
         ['primaryDate', 'comparisonDate'].forEach(id => {
             const input = document.getElementById(id);
             if (input) {
                 input.min = this.firstDate;
                 input.max = this.lastDate;
+                this.enforceDateInputValue(input);
             }
         });
 
@@ -1597,6 +1606,72 @@ class WeatherApp {
         if (primaryDateEl) {
             primaryDateEl.value = this.formatDateForAPI(this.currentDate);
         }
+    }
+
+    getYesterdayDateString() {
+        const date = new Date();
+        date.setDate(date.getDate() - 1);
+        return this.formatDateForAPI(date);
+    }
+
+    selectableDateRange(firstDate, lastDate) {
+        const minimum = this.minimumSelectableDate;
+        const maximum = this.maximumSelectableDate;
+        const boundedFirstDate = firstDate && firstDate > this.minimumSelectableDate
+            ? firstDate
+            : this.minimumSelectableDate;
+        const boundedLastDate = lastDate && lastDate < this.maximumSelectableDate
+            ? lastDate
+            : this.maximumSelectableDate;
+        let nextFirstDate = boundedFirstDate;
+        let nextLastDate = boundedLastDate;
+
+        if (nextLastDate < minimum) {
+            nextFirstDate = minimum;
+            nextLastDate = minimum;
+        } else if (nextFirstDate > maximum) {
+            nextFirstDate = maximum;
+            nextLastDate = maximum;
+        } else if (nextLastDate < nextFirstDate) {
+            nextFirstDate = nextLastDate;
+        }
+
+        return {
+            firstDate: nextFirstDate,
+            lastDate: nextLastDate
+        };
+    }
+
+    clampDateStringToAvailableRange(dateString) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateString))) {
+            return '';
+        }
+
+        if (dateString < this.firstDate) {
+            return this.firstDate;
+        }
+
+        if (dateString > this.lastDate) {
+            return this.lastDate;
+        }
+
+        return dateString;
+    }
+
+    enforceDateInputValue(input, messageKey = 'selectedOutOfRange') {
+        if (!input?.value) {
+            return '';
+        }
+
+        const selectedDate = input.value;
+        const clampedDate = this.clampDateStringToAvailableRange(selectedDate);
+
+        if (clampedDate && clampedDate !== selectedDate) {
+            input.value = clampedDate;
+            this.showMessage(this.t(messageKey), 'warning');
+        }
+
+        return clampedDate;
     }
 
     clampDateToAvailableRange(date) {
@@ -1728,7 +1803,7 @@ class WeatherApp {
     showLoading() {
         const spinner = document.getElementById('loadingSpinner');
         if (spinner) {
-            spinner.style.display = 'block';
+            spinner.style.display = 'flex';
         }
     }
 

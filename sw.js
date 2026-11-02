@@ -1,5 +1,5 @@
 // sw.js - Service Worker for KNMI Weather App
-const CACHE_NAME = 'knmi-weather-v1.1.4';
+const CACHE_NAME = 'knmi-weather-v1.1.5';
 const APP_SHELL_URL = new URL('./', self.location.href).href;
 const urlsToCache = [
     './',
@@ -16,7 +16,12 @@ const urlsToCache = [
     './js/app-i18n.js',
     './js/weather-api.js',
     './js/weather-app.js',
-    './js/chart-manager.js'
+    './js/chart-manager.js',
+    './vendor/bootstrap/css/bootstrap.min.css',
+    './vendor/bootstrap/js/bootstrap.bundle.min.js',
+    './vendor/bootstrap-icons/bootstrap-icons.min.css',
+    './vendor/bootstrap-icons/fonts/bootstrap-icons.woff2',
+    './vendor/chartjs/chart.umd.js'
 ];
 
 // Install event - cache resources
