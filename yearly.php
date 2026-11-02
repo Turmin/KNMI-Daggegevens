@@ -146,8 +146,12 @@ foreach ($rows as $row) {
 }
 
 $summaryRows = $completeRows ?: $rows;
+// Only complete years count for wettest/driest/average, otherwise a partial
+// year (e.g. a station's first year) would show up as the driest year.
 $rainSummaryRows = array_values(array_filter($summaryRows, static function($row) {
-    return $row['precipitation_mm'] !== null && $row['precipitation_mm'] !== '';
+    return $row['precipitation_mm'] !== null
+        && $row['precipitation_mm'] !== ''
+        && (int)($row['available_days'] ?? 0) >= 360;
 }));
 
 foreach ($rainSummaryRows as $row) {
