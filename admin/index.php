@@ -171,6 +171,115 @@ function exportCsv(PDO $db, KnmiDataService $service): void {
     exit;
 }
 
+function appEnvironment(): string {
+    $environmentFile = dirname(__DIR__) . '/config/environment.php';
+    return is_file($environmentFile) ? (string)(require $environmentFile) : 'production';
+}
+
+function adminQueryPresets(): array {
+    return [
+        'find_duplicates' => [
+            'label' => 'Find duplicates',
+            'sql' => "SELECT stn, yyyymmdd, COUNT(*) AS n, MIN(id) AS keep_id, MAX(id) AS last_id\nFROM knmi\nGROUP BY stn, yyyymmdd\nHAVING n > 1\nORDER BY yyyymmdd DESC"
+        ],
+        'count_duplicates' => [
+            'label' => 'Count duplicate rows',
+            'sql' => "SELECT COUNT(*) AS duplicate_rows\nFROM knmi k1\nJOIN knmi k2 ON k1.stn = k2.stn AND k1.yyyymmdd = k2.yyyymmdd AND k1.id > k2.id"
+        ],
+        'remove_duplicates' => [
+            'label' => 'Remove duplicates (keep lowest id)',
+            'sql' => "DELETE k1 FROM knmi k1\nJOIN knmi k2 ON k1.stn = k2.stn AND k1.yyyymmdd = k2.yyyymmdd AND k1.id > k2.id"
+        ],
+        'show_indexes' => [
+            'label' => 'Show indexes',
+            'sql' => 'SHOW INDEX FROM knmi'
+        ],
+        'add_unique_index' => [
+            'label' => 'Add unique index',
+            'sql' => 'ALTER TABLE knmi ADD UNIQUE KEY station_date_unique (`stn`(10), `yyyymmdd`)'
+        ],
+        'records_per_station' => [
+            'label' => 'Records per station',
+            'sql' => "SELECT stn, COUNT(*) AS records, MIN(yyyymmdd) AS first_date, MAX(yyyymmdd) AS latest_date\nFROM knmi\nGROUP BY stn\nORDER BY stn"
+        ]
+    ];
+}
+
+function isReadOnlyQuery(string $sql): bool {
+    if (!preg_match('/^\s*([a-z]+)/i', $sql, $matches)) {
+        return false;
+    }
+
+    return in_array(strtoupper($matches[1]), ['SELECT', 'SHOW', 'DESCRIBE', 'DESC', 'EXPLAIN', 'WITH'], true);
+}
+
+function runAdminQuery(PDO $db, string $sql, bool $writeConfirmed, bool $writesAllowed): array {
+    $sql = rtrim(trim($sql), "; \t\n\r");
+    $result = ['sql' => $sql, 'success' => false, 'read_only' => false, 'columns' => [], 'rows' => [], 'truncated' => false, 'affected' => null, 'duration_ms' => 0, 'message' => ''];
+    $maxRows = 500;
+
+    if ($sql === '') {
+        $result['message'] = 'Enter a query first.';
+        return $result;
+    }
+
+    $readOnly = isReadOnlyQuery($sql);
+    $result['read_only'] = $readOnly;
+
+    if (!$readOnly && !$writesAllowed) {
+        $result['message'] = 'Queries that change data are disabled in the ' . appEnvironment() . ' environment, because it shares the production database.';
+        return $result;
+    }
+
+    if (!$readOnly && !$writeConfirmed) {
+        $result['message'] = 'This query can change data. Tick the confirmation box to run it.';
+        return $result;
+    }
+
+    $start = microtime(true);
+    try {
+        if ($readOnly) {
+            // A read-only transaction makes MySQL refuse any write that slips through.
+            $db->exec('START TRANSACTION READ ONLY');
+        }
+
+        $stmt = $db->prepare($sql);
+        $stmt->execute();
+
+        if ($stmt->columnCount() > 0) {
+            for ($i = 0; $i < $stmt->columnCount(); $i++) {
+                $meta = $stmt->getColumnMeta($i);
+                $result['columns'][] = (string)($meta['name'] ?? ('col' . $i));
+            }
+            while (($row = $stmt->fetch(PDO::FETCH_NUM)) !== false) {
+                if (count($result['rows']) >= $maxRows) {
+                    $result['truncated'] = true;
+                    break;
+                }
+                $result['rows'][] = $row;
+            }
+            $stmt->closeCursor();
+            $result['message'] = count($result['rows']) . ' row(s)' . ($result['truncated'] ? ' (first ' . $maxRows . ' shown)' : '') . '.';
+        } else {
+            $result['affected'] = $stmt->rowCount();
+            $result['message'] = $result['affected'] . ' row(s) affected.';
+        }
+
+        if ($readOnly && $db->inTransaction()) {
+            $db->rollBack();
+        }
+        $result['success'] = true;
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        $result['message'] = $e->getMessage();
+    }
+
+    $result['duration_ms'] = (int)round((microtime(true) - $start) * 1000);
+    return $result;
+}
+
 $credentials = loadCredentials($credentialsFile);
 $setupRequired = $credentials === null;
 
@@ -238,6 +347,8 @@ $stationOptions = [];
 $cronTokenFile = dirname(__DIR__, 2) . '/knmi.cron.credentials.php';
 $cronTokenConfigured = is_file($cronTokenFile);
 $checkMissingDates = ($_GET['check_missing'] ?? '') === '1';
+$queryResult = null;
+$queryWritesAllowed = appEnvironment() === 'production';
 
 if ($isLoggedIn) {
     try {
@@ -265,7 +376,23 @@ if ($isLoggedIn) {
             $action = $_POST['action'];
             $result = null;
 
-            if ($action === 'cron_save') {
+            if ($action === 'sql_query') {
+                $queryResult = runAdminQuery(
+                    $db,
+                    (string)($_POST['sql'] ?? ''),
+                    ($_POST['confirm_write'] ?? '') === '1',
+                    $queryWritesAllowed
+                );
+                if (!$queryResult['read_only'] && $queryResult['success']) {
+                    $_SESSION['admin_activity'][] = [
+                        'time' => date('Y-m-d H:i:s'),
+                        'action' => 'sql_query',
+                        'success' => true,
+                        'messages' => [$queryResult['message'], mb_substr($queryResult['sql'], 0, 200)]
+                    ];
+                    $_SESSION['admin_activity'] = array_slice($_SESSION['admin_activity'], -6);
+                }
+            } elseif ($action === 'cron_save') {
                 $result = $cronService->saveJob($_POST);
             } elseif ($action === 'cron_delete') {
                 $result = $cronService->deleteJob((int)($_POST['id'] ?? 0));
@@ -726,8 +853,71 @@ $activity = array_reverse($_SESSION['admin_activity'] ?? []);
                     </div>
                 </div>
             </div>
+
+            <div class="admin-card" id="query">
+                <div class="card-body">
+                    <div class="d-flex flex-column flex-lg-row justify-content-between gap-2 mb-3">
+                        <div>
+                            <h2 class="h5 mb-1"><i class="bi bi-terminal text-primary me-2"></i>Database query</h2>
+                            <div class="small text-muted">One statement per run. SELECT, SHOW, DESCRIBE and EXPLAIN run read-only; anything else needs confirmation. Results are limited to 500 rows.</div>
+                        </div>
+                        <div class="small text-lg-end">
+                            Environment:
+                            <span class="badge bg-<?php echo $queryWritesAllowed ? 'success' : 'warning text-dark'; ?>"><?php echo h(appEnvironment()); ?></span>
+                            <?php if (!$queryWritesAllowed): ?>
+                                <div class="text-muted mt-1">Read-only here: writes are disabled outside production.</div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-2 mb-2" aria-label="Query presets">
+                        <?php foreach (adminQueryPresets() as $presetKey => $preset): ?>
+                            <?php $presetReadOnly = isReadOnlyQuery($preset['sql']); ?>
+                            <button class="btn btn-sm btn-outline-<?php echo $presetReadOnly ? 'secondary' : 'danger'; ?> query-preset" type="button" data-sql="<?php echo h($preset['sql']); ?>">
+                                <?php echo h($preset['label']); ?>
+                            </button>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <form method="post" action="#query">
+                        <input type="hidden" name="csrf" value="<?php echo h($csrf); ?>">
+                        <input type="hidden" name="action" value="sql_query">
+                        <label class="form-label visually-hidden" for="query_sql">SQL query</label>
+                        <textarea class="form-control query-input mb-2" id="query_sql" name="sql" rows="6" spellcheck="false" placeholder="SELECT * FROM knmi ORDER BY yyyymmdd DESC LIMIT 20"><?php echo h($queryResult['sql'] ?? ''); ?></textarea>
+                        <div class="d-flex flex-wrap align-items-center gap-3">
+                            <button class="btn btn-primary" type="submit"><i class="bi bi-play-fill me-1"></i>Run query</button>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="query_confirm_write" name="confirm_write" value="1" <?php echo $queryWritesAllowed ? '' : 'disabled'; ?>>
+                                <label class="form-check-label" for="query_confirm_write">I understand this query may change or delete data</label>
+                            </div>
+                        </div>
+                    </form>
+
+                    <?php if ($queryResult !== null): ?>
+                        <div class="alert alert-<?php echo $queryResult['success'] ? 'success' : 'danger'; ?> mt-3 mb-2 py-2">
+                            <?php echo h($queryResult['message']); ?>
+                            <?php if ($queryResult['success']): ?><span class="text-muted small ms-2"><?php echo (int)$queryResult['duration_ms']; ?> ms</span><?php endif; ?>
+                        </div>
+                        <?php if ($queryResult['columns']): ?>
+                            <div class="table-responsive query-result">
+                                <table class="table table-sm table-striped table-hover mb-0">
+                                    <thead>
+                                        <tr><?php foreach ($queryResult['columns'] as $column): ?><th><?php echo h($column); ?></th><?php endforeach; ?></tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($queryResult['rows'] as $row): ?>
+                                            <tr><?php foreach ($row as $value): ?><td><?php echo $value === null ? '<span class="text-muted">NULL</span>' : h($value); ?></td><?php endforeach; ?></tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
         <?php endif; ?>
     </div>
     <script src="js/cron-schedule.js?v=<?php echo (int)filemtime(__DIR__ . '/js/cron-schedule.js'); ?>"></script>
+    <script src="js/query-presets.js?v=<?php echo (int)filemtime(__DIR__ . '/js/query-presets.js'); ?>"></script>
 </body>
 </html>
