@@ -9,9 +9,7 @@ $isCli = PHP_SAPI === 'cli';
 
 // Only production runs cron jobs. Development shares the database and must
 // never import, otherwise both environments insert the same rows at once.
-// The deploy workflow writes config/environment.php; without it we assume production.
-$environmentFile = __DIR__ . '/config/environment.php';
-$environment = is_file($environmentFile) ? (string)(require $environmentFile) : 'production';
+$environment = AppPaths::environment();
 if ($environment !== 'production') {
     if (!$isCli) {
         header('Content-Type: application/json; charset=utf-8');
@@ -25,7 +23,7 @@ if ($environment !== 'production') {
 }
 
 function loadCronToken(): ?string {
-    $credentialsFile = dirname(__DIR__) . '/knmi.cron.credentials.php';
+    $credentialsFile = AppPaths::configDir() . '/knmi.cron.credentials.php';
     if (!is_file($credentialsFile)) {
         return null;
     }
@@ -53,7 +51,7 @@ if (!$isCli) {
 
 try {
     $db = (new Database())->connect();
-    $dataService = new KnmiDataService(__DIR__);
+    $dataService = new KnmiDataService();
     $cronService = new CronScheduleService($db, $dataService);
     $results = $cronService->runDueJobs();
 

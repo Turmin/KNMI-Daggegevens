@@ -2,259 +2,216 @@
 // models/WeatherData.php
 class WeatherData {
     private $conn;
-    private $table = 'knmi';
+    private $table = 'daily_observations';
     
     public function __construct($database) {
         $this->conn = $database;
     }
     
+    private const DAY_NAMES = ['zondag', 'maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag'];
+    private const MONTH_NAMES = [1 => 'januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'];
+    private const MONTH_SHORT = [1 => 'jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+
     /**
      * Get weather data for a specific date
      */
     public function getDataByDate($date, $station = 260) {
         $query = "
-            SELECT 
-                stn,
-                yyyymmdd as date,
-                ddvec as wind_direction,
-                fhvec as wind_speed_vector,
-                fg as wind_speed_avg,
-                fhx as wind_speed_max,
-                fhxh as wind_speed_max_hour,
-                fhn as wind_speed_min,
-                fhnh as wind_speed_min_hour,
-                fxx as wind_gust_max,
-                fxxh as wind_gust_max_hour,
-                tg as temp_avg,
-                tn as temp_min,
-                tnh as temp_min_hour,
-                tx as temp_max,
-                txh as temp_max_hour,
-                t10n as temp_ground_min,
-                t10nh as temp_ground_min_period,
-                sq as sun_duration,
-                sp as sun_percentage,
-                q as radiation_global,
-                dr as rain_duration,
-                rh as rain_amount,
-                rhx as rain_amount_max,
-                rhxh as rain_amount_max_hour,
-                pg as pressure_avg,
-                px as pressure_max,
-                pxh as pressure_max_hour,
-                pn as pressure_min,
-                pnh as pressure_min_hour,
-                vvn as visibility_min,
-                vvnh as visibility_min_hour,
-                vvx as visibility_max,
-                vvxh as visibility_max_hour,
-                ng as cloud_cover,
-                ug as humidity_avg,
-                ux as humidity_max,
-                uxh as humidity_max_hour,
-                un as humidity_min,
-                unh as humidity_min_hour,
-                ev24 as evaporation,
-                CASE 
-                    WHEN DAYOFWEEK(yyyymmdd) = 1 THEN 'zondag'
-                    WHEN DAYOFWEEK(yyyymmdd) = 2 THEN 'maandag' 
-                    WHEN DAYOFWEEK(yyyymmdd) = 3 THEN 'dinsdag'
-                    WHEN DAYOFWEEK(yyyymmdd) = 4 THEN 'woensdag'
-                    WHEN DAYOFWEEK(yyyymmdd) = 5 THEN 'donderdag'
-                    WHEN DAYOFWEEK(yyyymmdd) = 6 THEN 'vrijdag'
-                    WHEN DAYOFWEEK(yyyymmdd) = 7 THEN 'zaterdag'
-                END as day_name,
-                CASE
-                    WHEN MONTH(yyyymmdd) = 1 THEN 'januari'
-                    WHEN MONTH(yyyymmdd) = 2 THEN 'februari'
-                    WHEN MONTH(yyyymmdd) = 3 THEN 'maart'
-                    WHEN MONTH(yyyymmdd) = 4 THEN 'april'
-                    WHEN MONTH(yyyymmdd) = 5 THEN 'mei'
-                    WHEN MONTH(yyyymmdd) = 6 THEN 'juni'
-                    WHEN MONTH(yyyymmdd) = 7 THEN 'juli'
-                    WHEN MONTH(yyyymmdd) = 8 THEN 'augustus'
-                    WHEN MONTH(yyyymmdd) = 9 THEN 'september'
-                    WHEN MONTH(yyyymmdd) = 10 THEN 'oktober'
-                    WHEN MONTH(yyyymmdd) = 11 THEN 'november'
-                    WHEN MONTH(yyyymmdd) = 12 THEN 'december'
-                END as month_name,
-                CONCAT(
-                    CASE 
-                        WHEN DAYOFWEEK(yyyymmdd) = 1 THEN 'zondag'
-                        WHEN DAYOFWEEK(yyyymmdd) = 2 THEN 'maandag' 
-                        WHEN DAYOFWEEK(yyyymmdd) = 3 THEN 'dinsdag'
-                        WHEN DAYOFWEEK(yyyymmdd) = 4 THEN 'woensdag'
-                        WHEN DAYOFWEEK(yyyymmdd) = 5 THEN 'donderdag'
-                        WHEN DAYOFWEEK(yyyymmdd) = 6 THEN 'vrijdag'
-                        WHEN DAYOFWEEK(yyyymmdd) = 7 THEN 'zaterdag'
-                    END, ', ',
-                    DAY(yyyymmdd), ' ',
-                    CASE
-                        WHEN MONTH(yyyymmdd) = 1 THEN 'januari'
-                        WHEN MONTH(yyyymmdd) = 2 THEN 'februari'
-                        WHEN MONTH(yyyymmdd) = 3 THEN 'maart'
-                        WHEN MONTH(yyyymmdd) = 4 THEN 'april'
-                        WHEN MONTH(yyyymmdd) = 5 THEN 'mei'
-                        WHEN MONTH(yyyymmdd) = 6 THEN 'juni'
-                        WHEN MONTH(yyyymmdd) = 7 THEN 'juli'
-                        WHEN MONTH(yyyymmdd) = 8 THEN 'augustus'
-                        WHEN MONTH(yyyymmdd) = 9 THEN 'september'
-                        WHEN MONTH(yyyymmdd) = 10 THEN 'oktober'
-                        WHEN MONTH(yyyymmdd) = 11 THEN 'november'
-                        WHEN MONTH(yyyymmdd) = 12 THEN 'december'
-                    END, ' ',
-                    YEAR(yyyymmdd)
-                ) as date_formatted,
-                MONTH(yyyymmdd) as month,
-                YEAR(yyyymmdd) as year
+            SELECT
+                station AS stn,
+                date,
+                ddvec AS wind_direction,
+                fhvec AS wind_speed_vector,
+                fg AS wind_speed_avg,
+                fhx AS wind_speed_max,
+                fhxh AS wind_speed_max_hour,
+                fhn AS wind_speed_min,
+                fhnh AS wind_speed_min_hour,
+                fxx AS wind_gust_max,
+                fxxh AS wind_gust_max_hour,
+                tg AS temp_avg,
+                tn AS temp_min,
+                tnh AS temp_min_hour,
+                tx AS temp_max,
+                txh AS temp_max_hour,
+                t10n AS temp_ground_min,
+                t10nh AS temp_ground_min_period,
+                sq AS sun_duration,
+                sp AS sun_percentage,
+                q AS radiation_global,
+                dr AS rain_duration,
+                rh AS rain_amount,
+                rhx AS rain_amount_max,
+                rhxh AS rain_amount_max_hour,
+                pg AS pressure_avg,
+                px AS pressure_max,
+                pxh AS pressure_max_hour,
+                pn AS pressure_min,
+                pnh AS pressure_min_hour,
+                vvn AS visibility_min,
+                vvnh AS visibility_min_hour,
+                vvx AS visibility_max,
+                vvxh AS visibility_max_hour,
+                ng AS cloud_cover,
+                ug AS humidity_avg,
+                ux AS humidity_max,
+                uxh AS humidity_max_hour,
+                un AS humidity_min,
+                unh AS humidity_min_hour,
+                ev24 AS evaporation
             FROM {$this->table}
-            WHERE stn = :station AND yyyymmdd = :date
-            ORDER BY yyyymmdd DESC
+            WHERE station = :station AND date = :date
             LIMIT 1
         ";
-        
+
         try {
             $stmt = $this->conn->prepare($query);
-            $stmt->bindParam(':station', $station, PDO::PARAM_INT);
-            $stmt->bindParam(':date', $date, PDO::PARAM_STR);
+            $stmt->bindValue(':station', (int)$station, PDO::PARAM_INT);
+            $stmt->bindValue(':date', $date, PDO::PARAM_STR);
             $stmt->execute();
-            
+
             $result = $stmt->fetch();
-            
+
             if ($result) {
-                return $this->formatWeatherData($result);
+                return $this->formatWeatherData($this->addDateNames($result));
             }
-            
+
             return null;
         } catch(PDOException $e) {
             error_log("Query error: " . $e->getMessage());
             throw new Exception("Error retrieving weather data");
         }
     }
-    
+
     /**
      * Get weather data for multiple days (for charts)
      */
     public function getDataForPeriod($startDate, $endDate, $station = 260) {
         $query = "
-            SELECT 
-                yyyymmdd as date,
-                tg as temp_avg,
-                tn as temp_min,
-                tx as temp_max,
-                fg as wind_speed_avg,
-                rh as rain_amount,
-                dr as rain_duration,
-                sq as sun_duration,
-                q as radiation_global,
-                pg as pressure_avg,
-                CONCAT(DAY(yyyymmdd), ' ', 
-                    CASE
-                        WHEN MONTH(yyyymmdd) = 1 THEN 'jan'
-                        WHEN MONTH(yyyymmdd) = 2 THEN 'feb'
-                        WHEN MONTH(yyyymmdd) = 3 THEN 'mrt'
-                        WHEN MONTH(yyyymmdd) = 4 THEN 'apr'
-                        WHEN MONTH(yyyymmdd) = 5 THEN 'mei'
-                        WHEN MONTH(yyyymmdd) = 6 THEN 'jun'
-                        WHEN MONTH(yyyymmdd) = 7 THEN 'jul'
-                        WHEN MONTH(yyyymmdd) = 8 THEN 'aug'
-                        WHEN MONTH(yyyymmdd) = 9 THEN 'sep'
-                        WHEN MONTH(yyyymmdd) = 10 THEN 'okt'
-                        WHEN MONTH(yyyymmdd) = 11 THEN 'nov'
-                        WHEN MONTH(yyyymmdd) = 12 THEN 'dec'
-                    END
-                ) as date_short
+            SELECT
+                date,
+                tg AS temp_avg,
+                tn AS temp_min,
+                tx AS temp_max,
+                fg AS wind_speed_avg,
+                rh AS rain_amount,
+                dr AS rain_duration,
+                sq AS sun_duration,
+                q AS radiation_global,
+                pg AS pressure_avg
             FROM {$this->table}
-            WHERE stn = :station 
-                AND yyyymmdd BETWEEN :start_date AND :end_date
-            ORDER BY yyyymmdd ASC
+            WHERE station = :station
+                AND date BETWEEN :start_date AND :end_date
+            ORDER BY date ASC
         ";
-        
+
         try {
             $stmt = $this->conn->prepare($query);
-            $stmt->bindParam(':station', $station, PDO::PARAM_INT);
-            $stmt->bindParam(':start_date', $startDate, PDO::PARAM_STR);
-            $stmt->bindParam(':end_date', $endDate, PDO::PARAM_STR);
+            $stmt->bindValue(':station', (int)$station, PDO::PARAM_INT);
+            $stmt->bindValue(':start_date', $startDate, PDO::PARAM_STR);
+            $stmt->bindValue(':end_date', $endDate, PDO::PARAM_STR);
             $stmt->execute();
-            
+
             $results = $stmt->fetchAll();
-            
+            foreach ($results as &$row) {
+                $timestamp = strtotime($row['date']);
+                $row['date_short'] = (int)date('j', $timestamp) . ' ' . self::MONTH_SHORT[(int)date('n', $timestamp)];
+            }
+            unset($row);
+
             return array_map([$this, 'formatChartData'], $results);
         } catch(PDOException $e) {
             error_log("Query error: " . $e->getMessage());
             throw new Exception("Error retrieving period data");
         }
     }
-    
+
     /**
      * Get monthly statistics
      */
     public function getMonthlyStats($year, $month, $station = 260) {
         $query = "
-            SELECT 
-                COUNT(*) as total_days,
-                AVG(tg) as temp_avg_month,
-                MIN(tn) as temp_min_month,
-                MAX(tx) as temp_max_month,
-                SUM(rh) as rain_total_month,
-                SUM(sq) as sun_total_month,
-                AVG(fg) as wind_avg_month,
-                AVG(pg) as pressure_avg_month,
-                SUM(CASE WHEN rh > 0 THEN 1 ELSE 0 END) as rain_days,
-                SUM(CASE WHEN tx >= 200 THEN 1 ELSE 0 END) as summer_days,
-                SUM(CASE WHEN tn < 0 THEN 1 ELSE 0 END) as frost_days
+            SELECT
+                COUNT(*) AS total_days,
+                AVG(tg) AS temp_avg_month,
+                MIN(tn) AS temp_min_month,
+                MAX(tx) AS temp_max_month,
+                SUM(rh) AS rain_total_month,
+                SUM(sq) AS sun_total_month,
+                AVG(fg) AS wind_avg_month,
+                AVG(pg) AS pressure_avg_month,
+                COUNT(*) FILTER (WHERE rh >= 0.1) AS rain_days,
+                COUNT(*) FILTER (WHERE tx >= 20) AS summer_days,
+                COUNT(*) FILTER (WHERE tn < 0) AS frost_days
             FROM {$this->table}
-            WHERE stn = :station 
-                AND YEAR(yyyymmdd) = :year 
-                AND MONTH(yyyymmdd) = :month
+            WHERE station = :station
+                AND date >= make_date(:year, :month, 1)
+                AND date < make_date(:year2, :month2, 1) + INTERVAL '1 month'
         ";
-        
+
         try {
             $stmt = $this->conn->prepare($query);
-            $stmt->bindParam(':station', $station, PDO::PARAM_INT);
-            $stmt->bindParam(':year', $year, PDO::PARAM_INT);
-            $stmt->bindParam(':month', $month, PDO::PARAM_INT);
+            $stmt->bindValue(':station', (int)$station, PDO::PARAM_INT);
+            $stmt->bindValue(':year', (int)$year, PDO::PARAM_INT);
+            $stmt->bindValue(':month', (int)$month, PDO::PARAM_INT);
+            $stmt->bindValue(':year2', (int)$year, PDO::PARAM_INT);
+            $stmt->bindValue(':month2', (int)$month, PDO::PARAM_INT);
             $stmt->execute();
-            
+
             $result = $stmt->fetch();
-            
+
             return $this->formatMonthlyStats($result);
         } catch(PDOException $e) {
             error_log("Query error: " . $e->getMessage());
             throw new Exception("Error retrieving monthly statistics");
         }
     }
-    
+
     /**
      * Get date range available in database
      */
     public function getDateRange($station = 260) {
         $query = "
-            SELECT 
-                MIN(yyyymmdd) as first_date,
-                MAX(yyyymmdd) as last_date
+            SELECT
+                MIN(date) AS first_date,
+                MAX(date) AS last_date
             FROM {$this->table}
-            WHERE stn = :station
+            WHERE station = :station
         ";
-        
+
         try {
             $stmt = $this->conn->prepare($query);
-            $stmt->bindParam(':station', $station, PDO::PARAM_INT);
+            $stmt->bindValue(':station', (int)$station, PDO::PARAM_INT);
             $stmt->execute();
-            
+
             return $stmt->fetch();
         } catch(PDOException $e) {
             error_log("Query error: " . $e->getMessage());
             throw new Exception("Error retrieving date range");
         }
     }
-    
+
+    private function addDateNames(array $row): array {
+        $timestamp = strtotime($row['date']);
+        $dayName = self::DAY_NAMES[(int)date('w', $timestamp)];
+        $month = (int)date('n', $timestamp);
+        $year = (int)date('Y', $timestamp);
+
+        $row['day_name'] = $dayName;
+        $row['month_name'] = self::MONTH_NAMES[$month];
+        $row['date_formatted'] = $dayName . ', ' . (int)date('j', $timestamp) . ' ' . self::MONTH_NAMES[$month] . ' ' . $year;
+        $row['month'] = $month;
+        $row['year'] = $year;
+
+        return $row;
+    }
+
     /**
      * Format weather data for API response
      */
     private function formatWeatherData($data) {
         return [
-            'station' => $data['stn'],
+            'station' => $this->raw($data['stn']),
             'date' => $data['date'],
             'date_formatted' => $data['date_formatted'],
             'day_name' => $data['day_name'],
@@ -266,13 +223,13 @@ class WeatherData {
                 'min' => $this->convertTemperature($data['temp_min']),
                 'max' => $this->convertTemperature($data['temp_max']),
                 'ground_min' => $this->convertTemperature($data['temp_ground_min']),
-                'min_hour' => $data['temp_min_hour'],
-                'max_hour' => $data['temp_max_hour'],
-                'ground_min_period' => $data['temp_ground_min_period']
+                'min_hour' => $this->raw($data['temp_min_hour']),
+                'max_hour' => $this->raw($data['temp_max_hour']),
+                'ground_min_period' => $this->raw($data['temp_ground_min_period'])
             ],
             'wind' => [
-                'direction' => $this->convertWindDirection($data['wind_direction']),
-                'direction_degrees' => $data['wind_direction'],
+                'direction' => $this->raw($this->convertWindDirection($data['wind_direction'])),
+                'direction_degrees' => $this->raw($data['wind_direction']),
                 'direction_text' => $this->getWindDirectionText($data['wind_direction']),
                 'speed_vector' => $this->convertWindSpeed($data['wind_speed_vector']),
                 'speed_avg' => $this->convertWindSpeed($data['wind_speed_avg']),
@@ -280,42 +237,42 @@ class WeatherData {
                 'speed_min' => $this->convertWindSpeed($data['wind_speed_min']),
                 'gust_max' => $this->convertWindSpeed($data['wind_gust_max']),
                 'beaufort' => $this->getBeaufortScale($this->convertWindSpeed($data['wind_speed_avg'])),
-                'speed_max_hour' => $data['wind_speed_max_hour'],
-                'speed_min_hour' => $data['wind_speed_min_hour'],
-                'gust_max_hour' => $data['wind_gust_max_hour']
+                'speed_max_hour' => $this->raw($data['wind_speed_max_hour']),
+                'speed_min_hour' => $this->raw($data['wind_speed_min_hour']),
+                'gust_max_hour' => $this->raw($data['wind_gust_max_hour'])
             ],
             'precipitation' => [
                 'amount' => $this->convertPrecipitation($data['rain_amount']),
                 'duration' => $this->convertDuration($data['rain_duration']),
                 'amount_max' => $this->convertPrecipitation($data['rain_amount_max']),
-                'amount_max_hour' => $data['rain_amount_max_hour']
+                'amount_max_hour' => $this->raw($data['rain_amount_max_hour'])
             ],
             'sunshine' => [
                 'duration' => $this->convertDuration($data['sun_duration']),
-                'percentage' => $data['sun_percentage'],
+                'percentage' => $this->raw($data['sun_percentage']),
                 'radiation' => $this->convertRadiation($data['radiation_global'])
             ],
             'pressure' => [
                 'avg' => $this->convertPressure($data['pressure_avg']),
                 'max' => $this->convertPressure($data['pressure_max']),
                 'min' => $this->convertPressure($data['pressure_min']),
-                'max_hour' => $data['pressure_max_hour'],
-                'min_hour' => $data['pressure_min_hour']
+                'max_hour' => $this->raw($data['pressure_max_hour']),
+                'min_hour' => $this->raw($data['pressure_min_hour'])
             ],
             'visibility' => [
                 'min' => $this->convertVisibility($data['visibility_min']),
                 'max' => $this->convertVisibility($data['visibility_max']),
-                'min_hour' => $data['visibility_min_hour'],
-                'max_hour' => $data['visibility_max_hour']
+                'min_hour' => $this->raw($data['visibility_min_hour']),
+                'max_hour' => $this->raw($data['visibility_max_hour'])
             ],
             'humidity' => [
-                'avg' => $data['humidity_avg'],
-                'max' => $data['humidity_max'],
-                'min' => $data['humidity_min'],
-                'max_hour' => $data['humidity_max_hour'],
-                'min_hour' => $data['humidity_min_hour']
+                'avg' => $this->raw($data['humidity_avg']),
+                'max' => $this->raw($data['humidity_max']),
+                'min' => $this->raw($data['humidity_min']),
+                'max_hour' => $this->raw($data['humidity_max_hour']),
+                'min_hour' => $this->raw($data['humidity_min_hour'])
             ],
-            'cloud_cover' => $data['cloud_cover'],
+            'cloud_cover' => $this->raw($data['cloud_cover']),
             'evaporation' => $this->convertEvaporation($data['evaporation'])
         ];
     }
@@ -370,40 +327,49 @@ class WeatherData {
         ];
     }
     
-    // Conversion methods
+    // Conversion methods. Values are stored in real units; these only round and
+    // convert to the units the API has always returned.
     private function convertTemperature($value) {
-        return $value !== null ? round($value * 0.1, 1) : null;
+        return $value !== null ? round((float)$value, 1) : null;
     }
-    
+
     private function convertWindSpeed($value) {
-        return $value !== null ? round($value * 0.1 * 3.6, 1) : null; // Convert to km/h
+        return $value !== null ? round((float)$value * 3.6, 1) : null; // m/s to km/h
     }
-    
+
     private function convertPrecipitation($value) {
-        if ($value === null) return null;
-        return $value < 0 ? 0.1 : round($value * 0.1, 1);
+        // Trace (< 0.05 mm) is stored as 0.05 and shown as 0.1 mm, as before.
+        return $value !== null ? round((float)$value, 1) : null;
     }
-    
+
     private function convertDuration($value) {
-        return $value !== null ? round($value * 0.1, 1) : null;
+        return $value !== null ? round((float)$value, 1) : null;
     }
-    
+
     private function convertPressure($value) {
-        return $value !== null ? round($value * 0.1, 1) : null;
+        return $value !== null ? round((float)$value, 1) : null;
     }
-    
+
     private function convertVisibility($value) {
-        return $value !== null ? round($value * 0.1, 1) : null;
+        return $value !== null ? round((float)$value, 1) : null;
     }
-    
+
+    /**
+     * Pass-through values (hours, percentages, codes) were strings in the old
+     * MySQL API; keep that type so the frontend and API users see no change.
+     */
+    private function raw($value) {
+        return $value !== null ? (string)$value : null;
+    }
+
     private function convertRadiation($value) {
         return $value !== null ? (int)$value : null;
     }
-    
+
     private function convertEvaporation($value) {
-        return $value !== null ? round($value * 0.1, 1) : null;
+        return $value !== null ? round((float)$value, 1) : null;
     }
-    
+
     private function convertWindDirection($degrees) {
         return $degrees;
     }
@@ -441,4 +407,3 @@ class WeatherData {
         return ['scale' => 12, 'description' => 'Orkaan'];
     }
 }
-?>

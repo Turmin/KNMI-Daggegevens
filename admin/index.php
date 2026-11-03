@@ -3,7 +3,10 @@ declare(strict_types=1);
 
 session_start();
 
-$preferredCredentialsFile = dirname(__DIR__, 2) . '/knmi.admin.credentials.php';
+require_once __DIR__ . '/../config/AppPaths.php';
+require_once __DIR__ . '/../lib/DatabaseSchema.php';
+
+$preferredCredentialsFile = AppPaths::configDir() . '/knmi.admin.credentials.php';
 $legacyCredentialsFile = __DIR__ . '/admin_credentials.php';
 $credentialsFile = is_file($preferredCredentialsFile) || !is_file($legacyCredentialsFile)
     ? $preferredCredentialsFile
@@ -100,8 +103,7 @@ function getZipSupportLabel(): string {
 }
 
 function tableExists(PDO $db): bool {
-    $stmt = $db->query("SHOW TABLES LIKE 'knmi'");
-    return (bool) $stmt->fetchColumn();
+    return DatabaseSchema::observationsTableExists($db);
 }
 
 function getAdminStats(PDO $db, KnmiDataService $service, bool $checkMissing = false): array {
@@ -132,10 +134,10 @@ function getAdminStats(PDO $db, KnmiDataService $service, bool $checkMissing = f
     $stmt = $db->query("
         SELECT
             COUNT(*) as total_records,
-            MIN(yyyymmdd) as first_date,
-            MAX(yyyymmdd) as latest_date
-        FROM knmi
-        WHERE stn IN (" . $stationIds . ")
+            MIN(date) as first_date,
+            MAX(date) as latest_date
+        FROM " . DatabaseSchema::OBSERVATIONS_TABLE . "
+        WHERE station IN (" . $stationIds . ")
     ");
     $row = $stmt->fetch() ?: [];
 
@@ -147,13 +149,8 @@ function getAdminStats(PDO $db, KnmiDataService $service, bool $checkMissing = f
 }
 
 function exportCsv(PDO $db, KnmiDataService $service): void {
-    $columns = [
-        'stn', 'yyyymmdd', 'ddvec', 'fhvec', 'fg', 'fhx', 'fhxh', 'fhn', 'fhnh',
-        'fxx', 'fxxh', 'tg', 'tn', 'tnh', 'tx', 'txh', 't10n', 't10nh',
-        'sq', 'sp', 'q', 'dr', 'rh', 'rhx', 'rhxh', 'pg', 'px', 'pxh',
-        'pn', 'pnh', 'vvn', 'vvnh', 'vvx', 'vvxh', 'ng', 'ug', 'ux', 'uxh',
-        'un', 'unh', 'ev24'
-    ];
+    // Real units (°C, m/s, mm, hours, hPa, km); see lib/DatabaseSchema.php.
+    $columns = array_merge(['station', 'date'], array_keys(DatabaseSchema::OBSERVATION_COLUMNS));
 
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="knmi_stations_export_' . date('Ymd_His') . '.csv"');
@@ -162,7 +159,7 @@ function exportCsv(PDO $db, KnmiDataService $service): void {
     fputcsv($output, $columns);
 
     $stationIds = implode(',', array_map('intval', $service->getStationIds()));
-    $stmt = $db->query('SELECT `' . implode('`,`', $columns) . '` FROM knmi WHERE stn IN (' . $stationIds . ') ORDER BY stn ASC, yyyymmdd ASC');
+    $stmt = $db->query('SELECT ' . implode(',', $columns) . ' FROM ' . DatabaseSchema::OBSERVATIONS_TABLE . ' WHERE station IN (' . $stationIds . ') ORDER BY station ASC, date ASC');
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
         fputcsv($output, $row);
     }
@@ -172,35 +169,30 @@ function exportCsv(PDO $db, KnmiDataService $service): void {
 }
 
 function appEnvironment(): string {
-    $environmentFile = dirname(__DIR__) . '/config/environment.php';
-    return is_file($environmentFile) ? (string)(require $environmentFile) : 'production';
+    return AppPaths::environment();
 }
 
 function adminQueryPresets(): array {
     return [
-        'find_duplicates' => [
-            'label' => 'Find duplicates',
-            'sql' => "SELECT stn, yyyymmdd, COUNT(*) AS n, MIN(id) AS keep_id, MAX(id) AS last_id\nFROM knmi\nGROUP BY stn, yyyymmdd\nHAVING n > 1\nORDER BY yyyymmdd DESC"
+        'records_per_station' => [
+            'label' => 'Records per station',
+            'sql' => "SELECT station, COUNT(*) AS records, MIN(date) AS first_date, MAX(date) AS latest_date\nFROM daily_observations\nGROUP BY station\nORDER BY station"
         ],
-        'count_duplicates' => [
-            'label' => 'Count duplicate rows',
-            'sql' => "SELECT COUNT(*) AS duplicate_rows\nFROM knmi k1\nJOIN knmi k2 ON k1.stn = k2.stn AND k1.yyyymmdd = k2.yyyymmdd AND k1.id > k2.id"
+        'latest_days' => [
+            'label' => 'Latest days (De Bilt)',
+            'sql' => "SELECT date, tg, tn, tx, rh, sq, fg, pg\nFROM daily_observations\nWHERE station = 260\nORDER BY date DESC\nLIMIT 14"
         ],
-        'remove_duplicates' => [
-            'label' => 'Remove duplicates (keep lowest id)',
-            'sql' => "DELETE k1 FROM knmi k1\nJOIN knmi k2 ON k1.stn = k2.stn AND k1.yyyymmdd = k2.yyyymmdd AND k1.id > k2.id"
+        'missing_days' => [
+            'label' => 'Missing days per station',
+            'sql' => "SELECT station, COUNT(*) AS missing_days, MIN(day)::date AS first_missing, MAX(day)::date AS last_missing\nFROM (SELECT station, MIN(date) AS first_date, MAX(date) AS last_date FROM daily_observations GROUP BY station) r\nCROSS JOIN LATERAL generate_series(r.first_date, r.last_date, INTERVAL '1 day') AS day\nWHERE NOT EXISTS (SELECT 1 FROM daily_observations d WHERE d.station = r.station AND d.date = day::date)\nGROUP BY station\nORDER BY station"
         ],
         'show_indexes' => [
             'label' => 'Show indexes',
-            'sql' => 'SHOW INDEX FROM knmi'
+            'sql' => "SELECT indexname, indexdef\nFROM pg_indexes\nWHERE tablename = 'daily_observations'"
         ],
-        'add_unique_index' => [
-            'label' => 'Add unique index',
-            'sql' => 'ALTER TABLE knmi ADD UNIQUE KEY station_date_unique (`stn`(10), `yyyymmdd`)'
-        ],
-        'records_per_station' => [
-            'label' => 'Records per station',
-            'sql' => "SELECT stn, COUNT(*) AS records, MIN(yyyymmdd) AS first_date, MAX(yyyymmdd) AS latest_date\nFROM knmi\nGROUP BY stn\nORDER BY stn"
+        'table_size' => [
+            'label' => 'Table size',
+            'sql' => "SELECT pg_size_pretty(pg_total_relation_size('daily_observations')) AS total_size,\n       (SELECT COUNT(*) FROM daily_observations) AS rows"
         ]
     ];
 }
@@ -239,8 +231,10 @@ function runAdminQuery(PDO $db, string $sql, bool $writeConfirmed, bool $writesA
     $start = microtime(true);
     try {
         if ($readOnly) {
-            // A read-only transaction makes MySQL refuse any write that slips through.
-            $db->exec('START TRANSACTION READ ONLY');
+            // A read-only transaction makes the database refuse any write that slips
+            // through (e.g. a data-modifying WITH ... DELETE).
+            $db->beginTransaction();
+            $db->exec('SET TRANSACTION READ ONLY');
         }
 
         $stmt = $db->prepare($sql);
@@ -344,7 +338,7 @@ $cronService = null;
 $cronJobs = [];
 $cronTaskOptions = [];
 $stationOptions = [];
-$cronTokenFile = dirname(__DIR__, 2) . '/knmi.cron.credentials.php';
+$cronTokenFile = AppPaths::configDir() . '/knmi.cron.credentials.php';
 $cronTokenConfigured = is_file($cronTokenFile);
 $checkMissingDates = ($_GET['check_missing'] ?? '') === '1';
 $queryResult = null;
@@ -357,7 +351,7 @@ if ($isLoggedIn) {
         require_once __DIR__ . '/../lib/KnmiDataService.php';
         require_once __DIR__ . '/../lib/CronScheduleService.php';
 
-        $service = new KnmiDataService(dirname(__DIR__));
+        $service = new KnmiDataService();
         $db = (new Database())->connect();
         $weatherData = new WeatherData($db);
         $cronService = new CronScheduleService($db, $service);
@@ -366,7 +360,7 @@ if ($isLoggedIn) {
 
         if (($_GET['export'] ?? '') === 'csv') {
             if (!tableExists($db)) {
-                redirectAdmin(['type' => 'warning', 'messages' => ['The knmi table does not exist yet. Import data before exporting.']]);
+                redirectAdmin(['type' => 'warning', 'messages' => ['The daily_observations table does not exist yet. Import data before exporting.']]);
             }
             exportCsv($db, $service);
         }
@@ -652,7 +646,7 @@ $activity = array_reverse($_SESSION['admin_activity'] ?? []);
                             <h2 class="h5 mb-3"><i class="bi bi-check2-circle text-success me-2"></i>System status</h2>
                             <div class="d-grid gap-2">
                                 <div class="status-row d-flex justify-content-between"><span>Database connection</span><span class="badge bg-<?php echo $db ? 'success' : 'danger'; ?>"><?php echo $db ? 'Online' : 'Offline'; ?></span></div>
-                                <div class="status-row d-flex justify-content-between"><span>Table knmi</span><span class="badge bg-<?php echo ($stats['table_exists'] ?? false) ? 'success' : 'warning'; ?>"><?php echo ($stats['table_exists'] ?? false) ? 'Present' : 'Missing'; ?></span></div>
+                                <div class="status-row d-flex justify-content-between"><span>Table daily_observations</span><span class="badge bg-<?php echo ($stats['table_exists'] ?? false) ? 'success' : 'warning'; ?>"><?php echo ($stats['table_exists'] ?? false) ? 'Present' : 'Missing'; ?></span></div>
                                 <div class="status-row d-flex justify-content-between"><span>KNMI files</span><span class="badge bg-<?php echo ($stats['file']['exists'] ?? false) ? 'success' : 'warning'; ?>"><?php echo h(dataFileCountLabel($stats['file'] ?? [])); ?></span></div>
                                 <div class="status-row d-flex justify-content-between"><span>ZIP extraction</span><span class="badge bg-<?php echo ($stats['zip_available'] ?? false) ? 'success' : 'danger'; ?>"><?php echo h($stats['zip_support'] ?? 'Unavailable'); ?></span></div>
                                 <div class="status-row d-flex justify-content-between"><span>Login security</span><span class="badge bg-success">Active</span></div>
@@ -895,7 +889,7 @@ $activity = array_reverse($_SESSION['admin_activity'] ?? []);
                         <input type="hidden" name="csrf" value="<?php echo h($csrf); ?>">
                         <input type="hidden" name="action" value="sql_query">
                         <label class="form-label visually-hidden" for="query_sql">SQL query</label>
-                        <textarea class="form-control query-input mb-2" id="query_sql" name="sql" rows="6" spellcheck="false" placeholder="SELECT * FROM knmi ORDER BY yyyymmdd DESC LIMIT 20"><?php echo h($queryResult['sql'] ?? ''); ?></textarea>
+                        <textarea class="form-control query-input mb-2" id="query_sql" name="sql" rows="6" spellcheck="false" placeholder="SELECT * FROM daily_observations WHERE station = 260 ORDER BY date DESC LIMIT 20"><?php echo h($queryResult['sql'] ?? ''); ?></textarea>
                         <div class="d-flex flex-wrap align-items-center gap-3">
                             <button class="btn btn-primary" type="submit"><i class="bi bi-play-fill me-1"></i>Run query</button>
                             <div class="form-check">

@@ -123,7 +123,7 @@ Returns one weather record with:
 | `precipitation` | Amount, duration, maximum hourly amount, and maximum-hour value. Amounts are mm, durations are hours. |
 | `sunshine` | Sunshine duration, percentage, and global radiation in J/cm². |
 | `pressure` | Average, minimum, maximum, and related hour values in hPa. |
-| `visibility` | Minimum, maximum, and related hour values. |
+| `visibility` | Minimum and maximum visibility in km (lower bound of the KNMI visibility class), and related hour values. |
 | `humidity` | Average, minimum, maximum, and related hour values. |
 | `cloud_cover` | KNMI cloud cover value. |
 | `evaporation` | Evaporation in mm. |
@@ -265,3 +265,62 @@ Rate limited requests return:
   "timestamp": "2026-06-02T10:00:00+02:00"
 }
 ```
+
+## Running the Site
+
+The site runs in Docker with PostgreSQL. Everything is defined in `docker-compose.yml`:
+
+| Service | What it does |
+| --- | --- |
+| `db` | PostgreSQL 17. Data lives in the `pgdata` volume. |
+| `php` | PHP 8.3 (FPM) with the site code. |
+| `cron` | Runs `cron.php` every minute. The jobs themselves are managed in the admin. |
+| `web` | Nginx inside the container: routing, `/admin` IP restriction and error pages (what `.htaccess` does on Apache). |
+
+### First setup on the VPS
+
+```sh
+git clone https://github.com/Turmin/KNMI-Daggegevens.git /opt/knmi
+cd /opt/knmi
+cp .env.example .env        # set POSTGRES_PASSWORD (and WEB_PORT if 8090 is taken)
+docker compose up -d --build
+```
+
+Then add the server block from `docker/host-nginx/knmi.turmin.com.conf` to the Nginx on the VPS and run certbot for SSL.
+
+1. Open `https://knmi.turmin.com/admin/` from the allowed IP address and create the admin login.
+2. Click **Download KNMI file and import missing/new days** to fill the database (all stations, full history).
+3. Enable the default cron job (or add your own) so new days are imported automatically.
+
+Credentials (admin login, cron token) are kept in the `knmi-config` volume, downloaded KNMI files in `knmi-data`.
+
+### Updating
+
+```sh
+cd /opt/knmi && git pull && docker compose up -d --build
+```
+
+### Database
+
+Daily values are stored in the `daily_observations` table, one row per station and date (primary key `station, date`). Column names follow the KNMI variable codes (`tg`, `tx`, `rh`, ...), but the values are in real units instead of the tenths used in the KNMI text files:
+
+| Columns | Unit |
+| --- | --- |
+| `tg`, `tn`, `tx`, `t10n` | °C |
+| `fhvec`, `fg`, `fhx`, `fhn`, `fxx` | m/s |
+| `rh`, `rhx`, `ev24` | mm |
+| `sq`, `dr` | hours |
+| `pg`, `px`, `pn` | hPa |
+| `vvn`, `vvx` | km (lower bound of the KNMI visibility class) |
+| `q` | J/cm² |
+| `sp`, `ug`, `ux`, `un` | % |
+| `ng` | octants (9 = sky invisible) |
+
+KNMI uses `-1` for "less than 0.05" in `rh`, `rhx` and `sq`. These are stored as `0.05`. Each column also has a description in the database (`\d+ daily_observations` in `psql`).
+
+Backup:
+
+```sh
+docker compose exec -T db pg_dump -U knmi knmi | gzip > knmi-$(date +%F).sql.gz
+```
+

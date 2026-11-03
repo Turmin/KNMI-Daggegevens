@@ -4,3 +4,4 @@ sitemap*
 !sitemap.php
 google*
 config/environment.php
+.env

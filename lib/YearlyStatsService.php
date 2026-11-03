@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/KnmiStationCatalog.php';
+require_once __DIR__ . '/DatabaseSchema.php';
 
 class YearlyStatsService {
     public const DEFAULT_YEARLY_START_DATE = '1901-01-01';
@@ -11,7 +12,13 @@ class YearlyStatsService {
 
     public function __construct(PDO $db, ?string $cacheDir = null) {
         $this->db = $db;
-        $this->cacheDir = $cacheDir ?: rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'knmi-yearly-stats';
+        // In Docker the cron and web containers share the data volume, so the cache
+        // the cron job warms up after an import is the one the website reads.
+        $sharedDataDir = getenv('KNMI_DATA_DIR');
+        $defaultDir = ($sharedDataDir !== false && $sharedDataDir !== '')
+            ? rtrim($sharedDataDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'cache' . DIRECTORY_SEPARATOR . 'yearly-stats'
+            : rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'knmi-yearly-stats';
+        $this->cacheDir = $cacheDir ?: $defaultDir;
     }
 
     public function getStats(
@@ -67,8 +74,8 @@ class YearlyStatsService {
     }
 
     private function latestDataDate(int $station): string {
-        $stmt = $this->db->prepare('SELECT MAX(yyyymmdd) FROM knmi WHERE stn = :station');
-        $stmt->bindValue(':station', (string)$station, PDO::PARAM_STR);
+        $stmt = $this->db->prepare('SELECT MAX(date) FROM ' . DatabaseSchema::OBSERVATIONS_TABLE . ' WHERE station = :station');
+        $stmt->bindValue(':station', $station, PDO::PARAM_INT);
         $stmt->execute();
 
         return (string)($stmt->fetchColumn() ?: '');
@@ -76,7 +83,7 @@ class YearlyStatsService {
 
     private function cachePath(int $station, string $yearlyStartDate, string $precipitationStartDate, string $latestDate): string {
         $cacheKey = implode('-', [
-            'v2',
+            'v3',
             $station,
             preg_replace('/[^0-9]/', '', $yearlyStartDate),
             preg_replace('/[^0-9]/', '', $precipitationStartDate),
@@ -140,33 +147,33 @@ class YearlyStatsService {
                 continue;
             }
 
-            $totalTenth = 0.0;
+            $totalMm = 0.0;
             $precipitationDays = 0;
             $minMonth = null;
             $maxMonth = null;
 
             foreach ($rainMonths as $rainMonth) {
-                $totalTenth += $rainMonth['precipitation_tenth'];
+                $totalMm += $rainMonth['precipitation_mm'];
                 $precipitationDays += $rainMonth['precipitation_days'];
 
-                if ($minMonth === null || $rainMonth['precipitation_tenth'] < $minMonth['precipitation_tenth']) {
+                if ($minMonth === null || $rainMonth['precipitation_mm'] < $minMonth['precipitation_mm']) {
                     $minMonth = $rainMonth;
                 }
 
-                if ($maxMonth === null || $rainMonth['precipitation_tenth'] > $maxMonth['precipitation_tenth']) {
+                if ($maxMonth === null || $rainMonth['precipitation_mm'] > $maxMonth['precipitation_mm']) {
                     $maxMonth = $rainMonth;
                 }
             }
 
-            $averageTenth = $totalTenth / count($rainMonths);
+            $averageMm = $totalMm / count($rainMonths);
 
-            $row['precipitation_mm'] = round($totalTenth * 0.1, 1);
+            $row['precipitation_mm'] = round($totalMm, 1);
             $row['precipitation_min_month'] = $minMonth['month'];
-            $row['precipitation_min_month_mm'] = round($minMonth['precipitation_tenth'] * 0.1, 1);
+            $row['precipitation_min_month_mm'] = round($minMonth['precipitation_mm'], 1);
             $row['precipitation_avg_month'] = null;
-            $row['precipitation_avg_month_mm'] = round($averageTenth * 0.1, 1);
+            $row['precipitation_avg_month_mm'] = round($averageMm, 1);
             $row['precipitation_max_month'] = $maxMonth['month'];
-            $row['precipitation_max_month_mm'] = round($maxMonth['precipitation_tenth'] * 0.1, 1);
+            $row['precipitation_max_month_mm'] = round($maxMonth['precipitation_mm'], 1);
             $row['precipitation_days'] = $precipitationDays;
         }
         unset($row);
@@ -184,27 +191,19 @@ class YearlyStatsService {
     private function fetchYearRows(int $station, string $yearlyStartDate): array {
         $stmt = $this->db->prepare("
             SELECT
-                YEAR(yyyymmdd) AS year,
+                EXTRACT(YEAR FROM date)::int AS year,
                 COUNT(*) AS available_days,
-                ROUND(MIN(tn_num) * 0.1, 1) AS temp_min_c,
-                ROUND(AVG(tg_num) * 0.1, 1) AS temp_avg_c,
-                ROUND(MAX(tx_num) * 0.1, 1) AS temp_max_c,
-                ROUND(SUM(CASE WHEN sq_num < 0 THEN 0 ELSE sq_num END) * 0.1, 1) AS sunshine_hours
-            FROM (
-                SELECT
-                    yyyymmdd,
-                    CAST(NULLIF(TRIM(tn), '') AS SIGNED) AS tn_num,
-                    CAST(NULLIF(TRIM(tg), '') AS SIGNED) AS tg_num,
-                    CAST(NULLIF(TRIM(tx), '') AS SIGNED) AS tx_num,
-                    CAST(NULLIF(TRIM(sq), '') AS SIGNED) AS sq_num
-                FROM knmi
-                WHERE stn = :station
-                    AND yyyymmdd >= :start_date
-            ) AS daily
-            GROUP BY YEAR(yyyymmdd)
-            ORDER BY year ASC
+                ROUND(MIN(tn), 1) AS temp_min_c,
+                ROUND(AVG(tg), 1) AS temp_avg_c,
+                ROUND(MAX(tx), 1) AS temp_max_c,
+                ROUND(SUM(sq), 1) AS sunshine_hours
+            FROM " . DatabaseSchema::OBSERVATIONS_TABLE . "
+            WHERE station = :station
+                AND date >= :start_date
+            GROUP BY 1
+            ORDER BY 1 ASC
         ");
-        $stmt->bindValue(':station', (string)$station, PDO::PARAM_STR);
+        $stmt->bindValue(':station', $station, PDO::PARAM_INT);
         $stmt->bindValue(':start_date', $yearlyStartDate, PDO::PARAM_STR);
         $stmt->execute();
 
@@ -214,30 +213,28 @@ class YearlyStatsService {
     private function fetchRainMonthsByYear(int $station, string $precipitationStartDate): array {
         $stmt = $this->db->prepare("
             SELECT
-                YEAR(yyyymmdd) AS year,
-                MONTH(yyyymmdd) AS month,
-                SUM(CASE WHEN rh_num < 0 THEN 1 ELSE rh_num END) AS precipitation_tenth,
-                SUM(CASE WHEN rh_num != 0 THEN 1 ELSE 0 END) AS precipitation_days
-            FROM (
-                SELECT
-                    yyyymmdd,
-                    CAST(NULLIF(TRIM(rh), '') AS SIGNED) AS rh_num
-                FROM knmi
-                WHERE stn = :station
-                    AND yyyymmdd >= :precipitation_start_date
-            ) AS rain_daily
-            GROUP BY YEAR(yyyymmdd), MONTH(yyyymmdd)
-            ORDER BY year ASC, month ASC
+                EXTRACT(YEAR FROM date)::int AS year,
+                EXTRACT(MONTH FROM date)::int AS month,
+                SUM(rh) AS precipitation_mm,
+                COUNT(*) FILTER (WHERE rh > 0) AS precipitation_days
+            FROM " . DatabaseSchema::OBSERVATIONS_TABLE . "
+            WHERE station = :station
+                AND date >= :precipitation_start_date
+            GROUP BY 1, 2
+            ORDER BY 1 ASC, 2 ASC
         ");
-        $stmt->bindValue(':station', (string)$station, PDO::PARAM_STR);
+        $stmt->bindValue(':station', $station, PDO::PARAM_INT);
         $stmt->bindValue(':precipitation_start_date', $precipitationStartDate, PDO::PARAM_STR);
         $stmt->execute();
 
         $rainMonthsByYear = [];
         foreach (($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) as $row) {
+            if ($row['precipitation_mm'] === null) {
+                continue;
+            }
             $rainMonthsByYear[(int)$row['year']][] = [
                 'month' => (int)$row['month'],
-                'precipitation_tenth' => (float)$row['precipitation_tenth'],
+                'precipitation_mm' => (float)$row['precipitation_mm'],
                 'precipitation_days' => (int)$row['precipitation_days']
             ];
         }
@@ -251,18 +248,15 @@ class YearlyStatsService {
         }
 
         $stmt = $this->db->prepare("
-            SELECT yyyymmdd AS date, ROUND(value_num * 0.1, 1) AS value
-            FROM (
-                SELECT yyyymmdd, CAST(NULLIF(TRIM({$column}), '') AS SIGNED) AS value_num
-                FROM knmi
-                WHERE stn = :station
-                    AND yyyymmdd >= :start_date
-            ) AS daily
-            WHERE value_num IS NOT NULL
-            ORDER BY value_num {$direction}, yyyymmdd ASC
+            SELECT date, ROUND({$column}, 1) AS value
+            FROM " . DatabaseSchema::OBSERVATIONS_TABLE . "
+            WHERE station = :station
+                AND date >= :start_date
+                AND {$column} IS NOT NULL
+            ORDER BY {$column} {$direction}, date ASC
             LIMIT 1
         ");
-        $stmt->bindValue(':station', (string)$station, PDO::PARAM_STR);
+        $stmt->bindValue(':station', $station, PDO::PARAM_INT);
         $stmt->bindValue(':start_date', $startDate, PDO::PARAM_STR);
         $stmt->execute();
 
@@ -271,31 +265,18 @@ class YearlyStatsService {
 
     private function fetchWettestDay(int $station, string $precipitationStartDate): ?array {
         $stmt = $this->db->prepare("
-            SELECT yyyymmdd AS date, ROUND(precipitation_tenth * 0.1, 1) AS value
-            FROM (
-                SELECT
-                    yyyymmdd,
-                    CASE
-                        WHEN rh_num < 0 THEN 1
-                        ELSE rh_num
-                    END AS precipitation_tenth
-                FROM (
-                    SELECT yyyymmdd, CAST(NULLIF(TRIM(rh), '') AS SIGNED) AS rh_num
-                    FROM knmi
-                    WHERE stn = :station
-                        AND yyyymmdd >= :precipitation_start_date
-                ) AS rain_daily
-            ) AS daily
-            WHERE precipitation_tenth IS NOT NULL
-            ORDER BY precipitation_tenth DESC, yyyymmdd ASC
+            SELECT date, ROUND(rh, 1) AS value
+            FROM " . DatabaseSchema::OBSERVATIONS_TABLE . "
+            WHERE station = :station
+                AND date >= :precipitation_start_date
+                AND rh IS NOT NULL
+            ORDER BY rh DESC, date ASC
             LIMIT 1
         ");
-        $stmt->bindValue(':station', (string)$station, PDO::PARAM_STR);
+        $stmt->bindValue(':station', $station, PDO::PARAM_INT);
         $stmt->bindValue(':precipitation_start_date', $precipitationStartDate, PDO::PARAM_STR);
         $stmt->execute();
 
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 }
-
-?>

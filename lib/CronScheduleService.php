@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/KnmiStationCatalog.php';
 require_once __DIR__ . '/YearlyStatsService.php';
+require_once __DIR__ . '/DatabaseSchema.php';
 
 class CronScheduleService {
     private $db;
@@ -77,7 +78,7 @@ class CronScheduleService {
     }
 
     public function listJobs(): array {
-        $stmt = $this->db->query('SELECT * FROM knmi_cron_jobs ORDER BY enabled DESC, name ASC');
+        $stmt = $this->db->query('SELECT * FROM ' . DatabaseSchema::CRON_TABLE . ' ORDER BY enabled DESC, name ASC');
         return $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
     }
 
@@ -103,7 +104,7 @@ class CronScheduleService {
 
         if ($id > 0) {
             $stmt = $this->db->prepare('
-                UPDATE knmi_cron_jobs
+                UPDATE ' . DatabaseSchema::CRON_TABLE . '
                 SET name = :name,
                     task = :task,
                     station = :station,
@@ -125,7 +126,7 @@ class CronScheduleService {
         }
 
         $stmt = $this->db->prepare('
-            INSERT INTO knmi_cron_jobs
+            INSERT INTO ' . DatabaseSchema::CRON_TABLE . '
                 (name, task, station, schedule, enabled, created_at, updated_at)
             VALUES
                 (:name, :task, :station, :schedule, :enabled, NOW(), NOW())
@@ -142,14 +143,14 @@ class CronScheduleService {
     }
 
     public function deleteJob(int $id): array {
-        $stmt = $this->db->prepare('DELETE FROM knmi_cron_jobs WHERE id = :id');
+        $stmt = $this->db->prepare('DELETE FROM ' . DatabaseSchema::CRON_TABLE . ' WHERE id = :id');
         $stmt->execute([':id' => $id]);
 
         return ['success' => true, 'messages' => ['Cron schedule deleted.']];
     }
 
     public function runJob(int $id): array {
-        $stmt = $this->db->prepare('SELECT * FROM knmi_cron_jobs WHERE id = :id');
+        $stmt = $this->db->prepare('SELECT * FROM ' . DatabaseSchema::CRON_TABLE . ' WHERE id = :id');
         $stmt->execute([':id' => $id]);
         $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -180,47 +181,20 @@ class CronScheduleService {
     }
 
     private function ensureTable(): void {
-        $this->db->exec('
-            CREATE TABLE IF NOT EXISTS knmi_cron_jobs (
-                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(120) NOT NULL,
-                task VARCHAR(40) NOT NULL,
-                station INT NULL,
-                schedule VARCHAR(40) NOT NULL,
-                enabled TINYINT(1) NOT NULL DEFAULT 0,
-                last_run_at DATETIME NULL,
-                last_status VARCHAR(20) NULL,
-                last_message TEXT NULL,
-                created_at DATETIME NOT NULL,
-                updated_at DATETIME NOT NULL,
-                INDEX enabled_schedule (enabled, schedule),
-                INDEX last_run_at (last_run_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ');
-
-        $this->ensureStationColumn();
-    }
-
-    private function ensureStationColumn(): void {
-        $stmt = $this->db->query("SHOW COLUMNS FROM knmi_cron_jobs LIKE 'station'");
-        if ($stmt && $stmt->fetchColumn()) {
-            return;
-        }
-
-        $this->db->exec('ALTER TABLE knmi_cron_jobs ADD station INT NULL AFTER task');
+        DatabaseSchema::ensure($this->db);
     }
 
     private function seedDefaultJob(): void {
-        $count = (int)$this->db->query('SELECT COUNT(*) FROM knmi_cron_jobs')->fetchColumn();
+        $count = (int)$this->db->query('SELECT COUNT(*) FROM ' . DatabaseSchema::CRON_TABLE . '')->fetchColumn();
         if ($count > 0) {
             return;
         }
 
         $stmt = $this->db->prepare('
-            INSERT INTO knmi_cron_jobs
+            INSERT INTO ' . DatabaseSchema::CRON_TABLE . '
                 (name, task, schedule, enabled, created_at, updated_at)
             VALUES
-                (:name, :task, :schedule, 0, NOW(), NOW())
+                (:name, :task, :schedule, false, NOW(), NOW())
         ');
         $stmt->execute([
             ':name' => 'Daily KNMI update',
@@ -266,7 +240,7 @@ class CronScheduleService {
 
         $messageText = implode(' | ', $messages);
         $stmt = $this->db->prepare('
-            UPDATE knmi_cron_jobs
+            UPDATE ' . DatabaseSchema::CRON_TABLE . '
             SET last_run_at = :last_run_at,
                 last_status = :last_status,
                 last_message = :last_message,

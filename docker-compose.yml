@@ -1,0 +1,81 @@
+# KNMI Daggegevens on the VPS.
+#
+#   cp .env.example .env    # fill in the passwords
+#   docker compose up -d --build
+#
+# The site listens on 127.0.0.1:${WEB_PORT}; the Nginx on the VPS proxies
+# knmi.turmin.com to it and handles SSL (docker/host-nginx/knmi.turmin.com.conf).
+
+name: knmi
+
+x-php-env: &php-env
+  APP_ENV: ${APP_ENV:-production}
+  DB_HOST: db
+  DB_PORT: 5432
+  DB_NAME: ${POSTGRES_DB:-knmi}
+  DB_USER: ${POSTGRES_USER:-knmi}
+  DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+  KNMI_DATA_DIR: /data
+  KNMI_CONFIG_DIR: /config
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-knmi}
+      POSTGRES_USER: ${POSTGRES_USER:-knmi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      TZ: Europe/Amsterdam
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  php:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    image: knmi-php
+    restart: unless-stopped
+    environment: *php-env
+    volumes:
+      - knmi-data:/data
+      - knmi-config:/config
+    depends_on:
+      db:
+        condition: service_healthy
+
+  cron:
+    # Same image as "php" (built by that service)
+    image: knmi-php
+    pull_policy: never
+    restart: unless-stopped
+    command: ["knmi-cron"]
+    environment: *php-env
+    volumes:
+      - knmi-data:/data
+      - knmi-config:/config
+    depends_on:
+      php:
+        condition: service_started
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/nginx/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8090}:80"
+    depends_on:
+      - php
+
+volumes:
+  pgdata:
+  knmi-data:
+  knmi-config:

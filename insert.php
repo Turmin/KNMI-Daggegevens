@@ -8,7 +8,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $skipDownload = in_array('--skip-download', $_SERVER['argv'] ?? [], true);
-$service = new KnmiDataService(__DIR__);
+$service = new KnmiDataService();
 
 try {
     if (!$skipDownload) {

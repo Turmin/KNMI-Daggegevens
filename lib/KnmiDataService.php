@@ -1,6 +1,8 @@
 <?php
 
 require_once __DIR__ . '/KnmiStationCatalog.php';
+require_once __DIR__ . '/DatabaseSchema.php';
+require_once dirname(__DIR__) . '/config/AppPaths.php';
 
 class KnmiDataService {
     public const STATION = KnmiStationCatalog::DEFAULT_STATION;
@@ -18,8 +20,22 @@ class KnmiDataService {
         'un', 'unh', 'ev24'
     ];
 
-    public function __construct(?string $rootDir = null) {
-        $this->rootDir = $rootDir ?: dirname(__DIR__);
+    /** KNMI etmgeg values that are stored in tenths and become real units (÷10). */
+    private const TENTHS_COLUMNS = [
+        'fhvec', 'fg', 'fhx', 'fhn', 'fxx', 'tg', 'tn', 'tx', 't10n',
+        'sq', 'dr', 'rh', 'rhx', 'pg', 'px', 'pn', 'ev24'
+    ];
+
+    /** Columns where KNMI uses -1 for "less than 0.05". */
+    private const TRACE_COLUMNS = ['sq', 'rh', 'rhx'];
+    private const TRACE_VALUE = 0.05;
+
+    /** Visibility columns, stored by KNMI as a class code. */
+    private const VISIBILITY_COLUMNS = ['vvn', 'vvx'];
+
+    /** @param string|null $dataDir where the etmgeg_*.txt station files are kept */
+    public function __construct(?string $dataDir = null) {
+        $this->rootDir = $dataDir ?: AppPaths::dataDir();
     }
 
     public function getDataFilePath(?int $station = null): string {
@@ -124,10 +140,12 @@ class KnmiDataService {
             return $this->result(false, ['No KNMI station data files found. Download data before importing.']);
         }
 
-        $this->ensureTable($db);
+        DatabaseSchema::ensure($db);
 
-        $placeholders = '(' . implode(',', array_fill(0, count($this->columns), '?')) . ')';
-        $sql = 'INSERT IGNORE INTO knmi (`' . implode('`,`', $this->columns) . '`) VALUES ' . $placeholders;
+        $dbColumns = array_merge(['station', 'date'], array_keys(DatabaseSchema::OBSERVATION_COLUMNS));
+        $placeholders = '(' . implode(',', array_fill(0, count($dbColumns), '?')) . ')';
+        $sql = 'INSERT INTO ' . DatabaseSchema::OBSERVATIONS_TABLE . ' (' . implode(',', $dbColumns) . ') VALUES ' . $placeholders
+            . ' ON CONFLICT (station, date) DO NOTHING';
         $stmt = $db->prepare($sql);
         $inserted = 0;
         $messages = [];
@@ -351,14 +369,14 @@ class KnmiDataService {
         }
 
         if ($station !== null) {
-            $stmt = $db->prepare('SELECT MAX(yyyymmdd) as latest FROM knmi WHERE stn = :station');
+            $stmt = $db->prepare('SELECT MAX(date) as latest FROM ' . DatabaseSchema::OBSERVATIONS_TABLE . ' WHERE station = :station');
             $stmt->execute([':station' => $station]);
             $latest = $stmt->fetch()['latest'] ?? null;
             return $latest ?: null;
         }
 
         $stationIds = implode(',', array_map('intval', $this->getStationIds()));
-        $stmt = $db->query('SELECT MAX(yyyymmdd) as latest FROM knmi WHERE stn IN (' . $stationIds . ')');
+        $stmt = $db->query('SELECT MAX(date) as latest FROM ' . DatabaseSchema::OBSERVATIONS_TABLE . ' WHERE station IN (' . $stationIds . ')');
         $latest = $stmt ? ($stmt->fetch()['latest'] ?? null) : null;
 
         return $latest ?: null;
@@ -673,7 +691,7 @@ class KnmiDataService {
                     continue;
                 }
 
-                $stmt->execute(array_values($row));
+                $stmt->execute(array_values($this->toDatabaseRow($row)));
                 $inserted += $stmt->rowCount() > 0 ? 1 : 0;
                 $attempted++;
                 $batchCount++;
@@ -718,70 +736,13 @@ class KnmiDataService {
         ];
     }
 
-    private function readRowsMissingFromDatabase(array $existingDates): array {
-        $rows = [];
-
-        foreach ($this->getStationIds() as $station) {
-            $dataFile = $this->getStationDataFilePath((int)$station);
-            if (!is_file($dataFile)) {
-                continue;
-            }
-
-            $handle = fopen($dataFile, 'r');
-            if (!$handle) {
-                continue;
-            }
-
-            while (($line = fgets($handle)) !== false) {
-                $row = $this->parseDataLine($line, (int)$station);
-                if (!$row) {
-                    continue;
-                }
-
-                $stationKey = (string)$row['stn'];
-                $date = $row['yyyymmdd'];
-                if (isset($existingDates[$stationKey][$date])) {
-                    continue;
-                }
-
-                $rows[] = $row;
-                $existingDates[$stationKey][$date] = true;
-            }
-
-            fclose($handle);
-        }
-
-        return $rows;
-    }
-
-    private function getExistingDates(PDO $db): array {
-        if (!$this->databaseTableExists($db)) {
-            return [];
-        }
-
-        $dates = [];
-        $stationIds = implode(',', array_map('intval', $this->getStationIds()));
-        $stmt = $db->query('SELECT stn, yyyymmdd FROM knmi WHERE stn IN (' . $stationIds . ')');
-
-        while (($row = $stmt->fetch(PDO::FETCH_ASSOC)) !== false) {
-            $station = (string)$row['stn'];
-            $date = (string)$row['yyyymmdd'];
-            if (!isset($dates[$station])) {
-                $dates[$station] = [];
-            }
-            $dates[$station][$date] = true;
-        }
-
-        return $dates;
-    }
-
     private function getExistingDatesForStation(PDO $db, int $station): array {
         if (!$this->databaseTableExists($db)) {
             return [];
         }
 
         $dates = [];
-        $stmt = $db->prepare('SELECT yyyymmdd FROM knmi WHERE stn = :station');
+        $stmt = $db->prepare('SELECT date FROM ' . DatabaseSchema::OBSERVATIONS_TABLE . ' WHERE station = :station');
         $stmt->execute([':station' => $station]);
 
         while (($date = $stmt->fetchColumn()) !== false) {
@@ -821,106 +782,57 @@ class KnmiDataService {
         return array_combine($this->columns, $parts);
     }
 
-    private function ensureTable(PDO $db): void {
-        $db->exec("
-            CREATE TABLE IF NOT EXISTS `knmi` (
-                `id` int(11) NOT NULL AUTO_INCREMENT,
-                `stn` varchar(255) NOT NULL,
-                `yyyymmdd` date NOT NULL,
-                `ddvec` varchar(255) DEFAULT NULL,
-                `fhvec` varchar(255) DEFAULT NULL,
-                `fg` varchar(255) DEFAULT NULL,
-                `fhx` varchar(255) DEFAULT NULL,
-                `fhxh` varchar(255) DEFAULT NULL,
-                `fhn` varchar(255) DEFAULT NULL,
-                `fhnh` varchar(255) DEFAULT NULL,
-                `fxx` varchar(255) DEFAULT NULL,
-                `fxxh` varchar(255) DEFAULT NULL,
-                `tg` varchar(255) DEFAULT NULL,
-                `tn` varchar(255) DEFAULT NULL,
-                `tnh` varchar(255) DEFAULT NULL,
-                `tx` varchar(255) DEFAULT NULL,
-                `txh` varchar(255) DEFAULT NULL,
-                `t10n` varchar(255) DEFAULT NULL,
-                `t10nh` varchar(255) DEFAULT NULL,
-                `sq` varchar(255) DEFAULT NULL,
-                `sp` varchar(255) DEFAULT NULL,
-                `q` varchar(255) DEFAULT NULL,
-                `dr` varchar(255) DEFAULT NULL,
-                `rh` varchar(255) DEFAULT NULL,
-                `rhx` varchar(255) DEFAULT NULL,
-                `rhxh` varchar(255) DEFAULT NULL,
-                `pg` varchar(255) DEFAULT NULL,
-                `px` varchar(255) DEFAULT NULL,
-                `pxh` varchar(255) DEFAULT NULL,
-                `pn` varchar(255) DEFAULT NULL,
-                `pnh` varchar(255) DEFAULT NULL,
-                `vvn` varchar(255) DEFAULT NULL,
-                `vvnh` varchar(255) DEFAULT NULL,
-                `vvx` varchar(255) DEFAULT NULL,
-                `vvxh` varchar(255) DEFAULT NULL,
-                `ng` varchar(255) DEFAULT NULL,
-                `ug` varchar(255) DEFAULT NULL,
-                `ux` varchar(255) DEFAULT NULL,
-                `uxh` varchar(255) DEFAULT NULL,
-                `un` varchar(255) DEFAULT NULL,
-                `unh` varchar(255) DEFAULT NULL,
-                `ev24` varchar(255) DEFAULT NULL,
-                PRIMARY KEY (`id`),
-                KEY `station_date` (`stn`, `yyyymmdd`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        ");
+    /**
+     * Convert a parsed etmgeg row (KNMI tenths and codes, as strings) to the
+     * database row in real units. Empty values become NULL.
+     */
+    private function toDatabaseRow(array $row): array {
+        $result = [
+            'station' => (int)$row['stn'],
+            'date' => $row['yyyymmdd']
+        ];
 
-        $this->dropLegacyDateUniqueIndexes($db);
-        $this->ensureStationDateUniqueIndex($db);
-    }
-
-    private function dropLegacyDateUniqueIndexes(PDO $db): void {
-        $stmt = $db->query('SHOW INDEX FROM knmi');
-        if (!$stmt) {
-            return;
-        }
-
-        $indexes = [];
-        while (($row = $stmt->fetch(PDO::FETCH_ASSOC)) !== false) {
-            $keyName = (string)($row['Key_name'] ?? '');
-            if ($keyName === '' || $keyName === 'PRIMARY' || (int)($row['Non_unique'] ?? 1) !== 0) {
+        foreach (array_keys(DatabaseSchema::OBSERVATION_COLUMNS) as $column) {
+            $raw = trim((string)($row[$column] ?? ''));
+            if ($raw === '' || !is_numeric($raw)) {
+                $result[$column] = null;
                 continue;
             }
 
-            if (!isset($indexes[$keyName])) {
-                $indexes[$keyName] = [];
-            }
-
-            $indexes[$keyName][(int)($row['Seq_in_index'] ?? 0)] = (string)($row['Column_name'] ?? '');
-        }
-
-        foreach ($indexes as $keyName => $columns) {
-            ksort($columns);
-            $columns = array_values($columns);
-            if (count($columns) !== 1 || $columns[0] !== 'yyyymmdd') {
-                continue;
-            }
-
-            try {
-                $db->exec('ALTER TABLE knmi DROP INDEX `' . str_replace('`', '``', $keyName) . '`');
-            } catch (Throwable $e) {
-                error_log('Could not drop legacy yyyymmdd unique index ' . $keyName . ': ' . $e->getMessage());
+            $value = (int)$raw;
+            if (in_array($column, self::TRACE_COLUMNS, true) && $value === -1) {
+                $result[$column] = self::TRACE_VALUE;
+            } elseif (in_array($column, self::VISIBILITY_COLUMNS, true)) {
+                $result[$column] = self::visibilityCodeToKm($value);
+            } elseif (in_array($column, self::TENTHS_COLUMNS, true)) {
+                $result[$column] = $value / 10;
+            } else {
+                $result[$column] = $value;
             }
         }
+
+        return $result;
     }
 
-    private function ensureStationDateUniqueIndex(PDO $db): void {
-        $stmt = $db->query("SHOW INDEX FROM knmi WHERE Key_name = 'station_date_unique'");
-        if ($stmt && $stmt->fetchColumn()) {
-            return;
+    /**
+     * KNMI visibility classes: 0 = <100 m, 1-49 = 100-4900 m in steps of 100 m,
+     * 50 = 5-6 km, 56-79 = 6-29 km in steps of 1 km, 80-88 = 30-70 km in steps of 5 km (88 = 70-75 km),
+     * 89 = >70 km. Returns the lower bound of the class in km.
+     */
+    public static function visibilityCodeToKm(int $code): ?float {
+        if ($code >= 0 && $code <= 50) {
+            return $code / 10;
         }
-
-        try {
-            $db->exec('ALTER TABLE knmi ADD UNIQUE KEY station_date_unique (`stn`(10), `yyyymmdd`)');
-        } catch (Throwable $e) {
-            error_log('Could not add station_date_unique index: ' . $e->getMessage());
+        if ($code >= 56 && $code <= 79) {
+            return (float)($code - 50);
         }
+        if ($code >= 80 && $code <= 88) {
+            return (float)(30 + ($code - 80) * 5);
+        }
+        if ($code === 89) {
+            return 70.0;
+        }
+        return null;
     }
 
     private function getStationDataFilePath(int $station): string {
@@ -958,8 +870,7 @@ class KnmiDataService {
     }
 
     private function databaseTableExists(PDO $db): bool {
-        $stmt = $db->query("SHOW TABLES LIKE 'knmi'");
-        return (bool) $stmt->fetchColumn();
+        return DatabaseSchema::observationsTableExists($db);
     }
 
     private function result(bool $success, array $messages): array {

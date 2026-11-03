@@ -1,20 +1,31 @@
 <?php
 // config/Database.php
+//
+// PostgreSQL connection. Configuration is read from environment variables
+// (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD), which is how the Docker
+// setup passes it in. Without those, a credentials file outside the webroot is
+// used: <config dir>/knmi.database.credentials.php returning
+// ['host' => ..., 'port' => 5432, 'db_name' => ..., 'username' => ..., 'password' => ...].
+require_once __DIR__ . '/AppPaths.php';
+
 class Database {
     private $host;
+    private $port;
     private $db_name;
     private $username;
     private $password;
     private $conn = null;
 
     public function __construct($configPath = null) {
-        $configPath = $configPath ?: dirname(__DIR__, 2) . '/knmi.database.credentials.php';
+        $config = $this->configFromEnvironment();
 
-        if (!file_exists($configPath)) {
-            throw new Exception("Database configuration file not found");
+        if ($config === null) {
+            $configPath = $configPath ?: AppPaths::configDir() . '/knmi.database.credentials.php';
+            if (!file_exists($configPath)) {
+                throw new Exception("Database configuration file not found");
+            }
+            $config = require $configPath;
         }
-
-        $config = require $configPath;
 
         foreach (['host', 'db_name', 'username', 'password'] as $key) {
             if (!isset($config[$key]) || $config[$key] === '') {
@@ -23,16 +34,32 @@ class Database {
         }
 
         $this->host = $config['host'];
+        $this->port = (int)($config['port'] ?? 5432);
         $this->db_name = $config['db_name'];
         $this->username = $config['username'];
         $this->password = $config['password'];
+    }
+
+    private function configFromEnvironment(): ?array {
+        $host = getenv('DB_HOST');
+        if ($host === false || $host === '') {
+            return null;
+        }
+
+        return [
+            'host' => $host,
+            'port' => getenv('DB_PORT') ?: 5432,
+            'db_name' => getenv('DB_NAME') ?: '',
+            'username' => getenv('DB_USER') ?: '',
+            'password' => getenv('DB_PASSWORD') ?: ''
+        ];
     }
 
     public function connect() {
         if ($this->conn === null) {
             try {
                 $this->conn = new PDO(
-                    "mysql:host=" . $this->host . ";dbname=" . $this->db_name . ";charset=utf8mb4",
+                    "pgsql:host=" . $this->host . ";port=" . $this->port . ";dbname=" . $this->db_name,
                     $this->username,
                     $this->password,
                     [
@@ -49,4 +76,3 @@ class Database {
         return $this->conn;
     }
 }
-?>

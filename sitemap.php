@@ -78,7 +78,7 @@ function writeUrlEntry(string $loc, ?string $lastmod = null, string $changefreq 
 }
 
 function connectSitemapDatabase(): PDO {
-    $credentialsFile = dirname(__DIR__) . '/knmi.sitemap.credentials.php';
+    $credentialsFile = AppPaths::configDir() . '/knmi.sitemap.credentials.php';
     $database = new Database(is_file($credentialsFile) ? $credentialsFile : null);
     return $database->connect();
 }
@@ -86,19 +86,19 @@ function connectSitemapDatabase(): PDO {
 function getSitemapYears(PDO $db): array {
     $stmt = $db->query("
         SELECT
-            YEAR(yyyymmdd) AS year,
-            MAX(yyyymmdd) AS lastmod
-        FROM knmi
-        WHERE stn = 260
-        GROUP BY YEAR(yyyymmdd)
-        ORDER BY year DESC
+            EXTRACT(YEAR FROM date)::int AS year,
+            MAX(date) AS lastmod
+        FROM daily_observations
+        WHERE station = 260
+        GROUP BY 1
+        ORDER BY 1 DESC
     ");
 
     return $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
 }
 
 function getLatestDate(PDO $db): ?string {
-    $latestDate = $db->query('SELECT MAX(yyyymmdd) FROM knmi WHERE stn = 260')->fetchColumn();
+    $latestDate = $db->query('SELECT MAX(date) FROM daily_observations WHERE station = 260')->fetchColumn();
     return normalizeKnmiDate($latestDate);
 }
 
@@ -141,11 +141,11 @@ function writeYearSitemap(PDO $db, string $baseUrl, int $year): void {
     $startDate = sprintf('%04d-01-01', $year);
     $endDate = sprintf('%04d-12-31', $year);
     $stmt = $db->prepare('
-        SELECT yyyymmdd AS date
-        FROM knmi
-        WHERE stn = 260
-            AND yyyymmdd BETWEEN :start_date AND :end_date
-        ORDER BY yyyymmdd DESC
+        SELECT date
+        FROM daily_observations
+        WHERE station = 260
+            AND date BETWEEN :start_date AND :end_date
+        ORDER BY date DESC
     ');
     $stmt->execute([
         ':start_date' => $startDate,

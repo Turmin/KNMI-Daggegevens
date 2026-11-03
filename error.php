@@ -43,7 +43,10 @@ $ui = [
     'en' => ['tagline' => 'Historical weather data for the Netherlands', 'home' => 'Go to daily data', 'yearly' => 'Yearly statistics', 'siteName' => 'KNMI Daily Data'],
 ];
 
-$code = (int)($_SERVER['REDIRECT_STATUS'] ?? $_GET['code'] ?? 404);
+// Apache passes the original status as REDIRECT_STATUS; Nginx passes it as ?code=
+// (its FastCGI setup always sets REDIRECT_STATUS to 200, so that one is ignored).
+$redirectStatus = (int)($_SERVER['REDIRECT_STATUS'] ?? 0);
+$code = $redirectStatus >= 400 ? $redirectStatus : (int)($_GET['code'] ?? 404);
 if (!isset($errors[$code])) {
     $code = 404;
 }

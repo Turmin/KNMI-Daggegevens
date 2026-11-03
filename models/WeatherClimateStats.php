@@ -2,7 +2,7 @@
 // models/WeatherClimateStats.php
 class WeatherClimateStats {
     private $conn;
-    private $table = 'knmi';
+    private $table = 'daily_observations';
 
     public function __construct($database) {
         $this->conn = $database;
@@ -19,23 +19,23 @@ class WeatherClimateStats {
 
         $query = "
             SELECT
-                yyyymmdd AS date,
-                YEAR(yyyymmdd) AS year,
+                date,
+                EXTRACT(YEAR FROM date)::int AS year,
                 tx AS temp_max,
                 rh AS rain_amount,
                 sq AS sun_duration
             FROM {$this->table}
-            WHERE stn = :station
-                AND MONTH(yyyymmdd) = :month
-                AND DAY(yyyymmdd) = :day
-            ORDER BY yyyymmdd ASC
+            WHERE station = :station
+                AND EXTRACT(MONTH FROM date) = :month
+                AND EXTRACT(DAY FROM date) = :day
+            ORDER BY date ASC
         ";
 
         try {
             $stmt = $this->conn->prepare($query);
-            $stmt->bindParam(':station', $station, PDO::PARAM_INT);
-            $stmt->bindParam(':month', $month, PDO::PARAM_INT);
-            $stmt->bindParam(':day', $day, PDO::PARAM_INT);
+            $stmt->bindValue(':station', (int)$station, PDO::PARAM_INT);
+            $stmt->bindValue(':month', $month, PDO::PARAM_INT);
+            $stmt->bindValue(':day', $day, PDO::PARAM_INT);
             $stmt->execute();
 
             $rows = $stmt->fetchAll();
@@ -255,17 +255,16 @@ class WeatherClimateStats {
         ];
     }
 
+    // Values are stored in real units; trace (< 0.05) is stored as 0.05 and shows as 0.1.
     private function convertTemperature($value) {
-        return $value !== null ? round($value * 0.1, 1) : null;
+        return $value !== null ? round((float)$value, 1) : null;
     }
 
     private function convertPrecipitation($value) {
-        if ($value === null) return null;
-        return $value < 0 ? 0.1 : round($value * 0.1, 1);
+        return $value !== null ? round((float)$value, 1) : null;
     }
 
     private function convertDuration($value) {
-        return $value !== null ? round($value * 0.1, 1) : null;
+        return $value !== null ? round((float)$value, 1) : null;
     }
 }
-?>

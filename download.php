@@ -6,7 +6,7 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 
-$service = new KnmiDataService(__DIR__);
+$service = new KnmiDataService();
 $result = $service->downloadDailyData();
 
 foreach ($result['messages'] ?? [] as $message) {

@@ -1,70 +1,49 @@
-name: Deploy website via FTPS
+name: Deploy to VPS
+
+# Pulls the latest code on the VPS and rebuilds the Docker containers.
+# Repository secrets needed:
+#   VPS_HOST     host name or IP of the VPS
+#   VPS_USER     SSH user that may run docker compose
+#   VPS_SSH_KEY  private key for that user (a key only for this deploy)
+#   VPS_PATH     folder with the clone on the VPS, e.g. /opt/knmi
+# The VPS clones the public repo over HTTPS, so it needs no GitHub credentials.
 
 on:
   push:
     branches:
       - main
-      - development
   workflow_dispatch:
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Upload website
+    name: Deploy
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'main' && 'production' || 'development' }}
+    environment: production
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Prepare deploy folder
+      - name: Set up SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
         run: |
-          mkdir -p .deploy
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
 
-          rsync -av \
-            --exclude='.env' \
-            --exclude='*.sql' \
-            --exclude='*.zip' \
-            --exclude='*.tar' \
-            --exclude='*.tar.gz' \
-            --exclude='*.bak' \
-            --exclude='*.backup' \
-            --exclude='*.old' \
-            --exclude='*.log' \
-            --exclude='*.txt' \
-            --include='*/' \
-            --include='*.php' \
-            --include='*.html' \
-            --include='*.ico' \
-            --include='*.png' \
-            --include='robots.txt' \
-            --include='.htaccess' \
-            --include='sw.js' \
-            --include='manifest.json' \
-            --include='css/***' \
-            --include='js/***' \
-            --include='icons/***' \
-            --include='screenshots/***' \
-            --include='admin/***' \
-            --include='api/***' \
-            --include='doc/***' \
-            --include='lib/***' \
-            --include='models/***' \
-            --include='vendor/***' \
-            --exclude='*' \
-            ./ .deploy/
-
-      - name: Write environment file
+      - name: Pull and rebuild
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PATH: ${{ secrets.VPS_PATH }}
         run: |
-          printf "<?php\nreturn '%s';\n" "${{ github.ref_name == 'main' && 'production' || 'development' }}" > .deploy/config/environment.php
-          cat .deploy/config/environment.php
-
-      - name: Deploy via FTPS
-        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
-        with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          protocol: ftps
-          local-dir: ./.deploy/
-          server-dir: ${{ secrets.FTP_REMOTE_DIR }}
+          ssh -i ~/.ssh/id_deploy "$VPS_USER@$VPS_HOST" "set -e
+            cd '$VPS_PATH'
+            git fetch --quiet origin main
+            git reset --hard origin/main
+            docker compose up -d --build --remove-orphans
+            docker image prune -f >/dev/null"
