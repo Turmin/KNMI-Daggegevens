@@ -272,7 +272,7 @@ The site runs in Docker with PostgreSQL. Everything is defined in `docker-compos
 
 | Service | What it does |
 | --- | --- |
-| `db` | PostgreSQL 17. Data lives in the `pgdata` volume. |
+| `db` | PostgreSQL 18. Data lives in the `pgdata` volume. |
 | `php` | PHP 8.3 (FPM) with the site code. |
 | `cron` | Runs `cron.php` every minute. The jobs themselves are managed in the admin. |
 | `web` | Nginx inside the container: routing, `/admin` IP restriction and error pages (what `.htaccess` does on Apache). |

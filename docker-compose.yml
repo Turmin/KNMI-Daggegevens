@@ -20,7 +20,9 @@ x-php-env: &php-env
 
 services:
   db:
-    image: postgres:17-alpine
+    # 18.x, follows the latest minor release. Note: since 18 the image keeps its data
+    # in /var/lib/postgresql/18/docker, so the volume is mounted on /var/lib/postgresql.
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-knmi}
@@ -28,7 +30,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       TZ: Europe/Amsterdam
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
