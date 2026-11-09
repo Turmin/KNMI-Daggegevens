@@ -18,8 +18,9 @@ ErrorDocument 502 /error.php
 ErrorDocument 503 /error.php
 ErrorDocument 504 /error.php
 
-# Admin is only reachable from this IP address
-RewriteCond %{REMOTE_ADDR} !^85\.145\.36\.255$
+# Admin is only reachable from one IP address. The deploy workflow replaces
+# the placeholder with the value of the ADMIN_ALLOWED_IP secret.
+RewriteCond %{REMOTE_ADDR} !^__ADMIN_ALLOWED_IP__$
 RewriteRule ^admin(/|$) - [F,L]
 
 RewriteRule ^admin$ https://%{HTTP_HOST}/admin/ [R=301,L]
